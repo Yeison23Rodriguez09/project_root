@@ -344,8 +344,39 @@ status = "not_started"
 phase = "4"
 
 [state.Monitoring]
-status = "not_started"
+status = "in_progress"
 phase = "3"
+artifacts = [
+    "app/monitoring/sink.py",
+    "app/monitoring/run_context.py",
+    "app/monitoring/runtime_metrics.py",
+]
+principles = ["P1", "P2", "P6", "P9"]
+decisions = ["ADR-0008"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+Existe el adaptador de `EventSinkPort` sobre structlog y orjson, el contexto de
+corrida con `run_id` derivado del contenido, y `RuntimeMetrics` como suscriptor
+real del bus con las seis fases de `LifecyclePort`.
+
+Falta que la raiz de composicion los REGISTRE. Hoy los tres se construyen y se
+prueban contra un bus real, pero `build_platform` no los conoce, asi que la
+plataforma sigue arrancando sin observabilidad. Es el trabajo del bloque B2 y
+hasta entonces esta capacidad no puede pasar a `ready`: un adaptador que nadie
+inyecta es un adaptador que en produccion no existe.
+
+Pendientes ademas `coverage_met` (no bloqueante) y `ci_green` (bloqueante).
+"""
 
 [state.Interface]
 status = "in_progress"
