@@ -11,9 +11,11 @@ el motor que lo consume seria codigo sin consumidor, que es exactamente lo que
 ADR-0006 obliga a recortar.
 
 Que el directorio este vacio **no** significa que el camino de carga externo no
-se ejercite: `tests/fixtures/plugins/` contiene paquetes de plugin reales -con
-su `plugin.toml` completo- que los tests cargan con el `Loader` de verdad. Lo
-que se prueba es el mecanismo, y se prueba con plugins autenticos.
+se ejercite: `tests/fixtures/plugins/` contiene cuatro paquetes de plugin reales
+-con su `plugin.toml`- que `tests/test_plugins.py` descubre, valida y carga con
+el `Loader` de verdad. Cubren los cuatro finales posibles de una carga:
+conforme, con campos ausentes, con API incompatible y con manifiesto ilegible.
+Lo que se prueba es el mecanismo, y se prueba con plugins autenticos.
 
 ## Que debe cumplir un plugin
 

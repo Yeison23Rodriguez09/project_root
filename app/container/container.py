@@ -453,7 +453,7 @@ class Container:
     def shutdown(self, *, quiet: bool = False) -> list[PhaseReport]:
         """Para y libera en orden inverso al de arranque.
 
-        Shutdown intenta cerrar TODO. Nunca aborta porque un componente falle: el
+        Shutdown intenta cerrarlo todo. Nunca aborta porque un componente falle: el
         informe recoge que se cerro y que no, y el resto sigue cerrandose. Un
         cierre abortado a mitad deja recursos abiertos justo cuando el sistema
         intentaba soltarlos.
