@@ -1,12 +1,12 @@
 # Reporte de consolidacion arquitectonica
 
-Generado: 2026-07-28T11:35:43Z
+Generado: 2026-07-28T11:44:24Z
 
-- Modulos analizados: **94**
-- Aristas entre paquetes: **10**
+- Modulos analizados: **100**
+- Aristas entre paquetes: **11**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **64**
+- Modulos huerfanos: **65**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -16,8 +16,8 @@ Generado: 2026-07-28T11:35:43Z
 | app.analytics | 3 | 1 | 0 |
 | app.application | 5 | 5 | 0 |
 | app.broker | 4 | 1 | 0 |
-| app.config | 4 | 2 | 1 |
-| app.container | 5 | 4 | 3 |
+| app.config | 4 | 7 | 1 |
+| app.container | 5 | 5 | 4 |
 | app.core | 0 | 19 | 0 |
 | app.discovery | 3 | 14 | 0 |
 | app.domain | 1 | 13 | 1 |
@@ -54,7 +54,8 @@ _ninguno_
 - `app.application.promotion`
 - `app.broker`
 - `app.config`
-- `app.config.providers.toml`
+- `app.config.providers`
+- `app.config.providers.yaml`
 - `app.container`
 - `app.core`
 - `app.core.config`

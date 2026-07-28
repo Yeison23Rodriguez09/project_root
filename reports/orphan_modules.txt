@@ -6,7 +6,8 @@ app.application.live
 app.application.promotion
 app.broker
 app.config
-app.config.providers.toml
+app.config.providers
+app.config.providers.yaml
 app.container
 app.core
 app.core.config
