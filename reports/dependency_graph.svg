@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1744" height="908" viewBox="0 0 1744 908" font-family="ui-monospace,monospace" font-size="11">
+<defs><marker id="a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#94a3b8"/></marker></defs>
+<rect width="1744" height="908" fill="#ffffff"/>
+<line x1="777" y1="492" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="967" y1="608" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="967" y1="608" x2="967" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="967" y1="608" x2="872" y2="300" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="872" y1="144" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="967" y1="28" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="872" y1="840" x2="967" y2="648" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="872" y1="840" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="872" y1="260" x2="777" y2="68" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<line x1="872" y1="260" x2="872" y2="184" stroke="#cbd5e1" stroke-width="1" marker-end="url(#a)"/>
+<rect x="28" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="112" y="400" text-anchor="middle" fill="#0f172a">analytics</text>
+<rect x="693" y="608" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="777" y="632" text-anchor="middle" fill="#0f172a">application</text>
+<rect x="503" y="492" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="587" y="516" text-anchor="middle" fill="#0f172a">broker</text>
+<rect x="693" y="492" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="777" y="516" text-anchor="middle" fill="#0f172a">config</text>
+<rect x="883" y="608" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="967" y="632" text-anchor="middle" fill="#0f172a">container</text>
+<rect x="693" y="28" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="777" y="52" text-anchor="middle" fill="#0f172a">core</text>
+<rect x="218" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="302" y="400" text-anchor="middle" fill="#0f172a">discovery</text>
+<rect x="788" y="144" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="872" y="168" text-anchor="middle" fill="#0f172a">domain</text>
+<rect x="883" y="28" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="967" y="52" text-anchor="middle" fill="#0f172a">events</text>
+<rect x="408" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="492" y="400" text-anchor="middle" fill="#0f172a">execution</text>
+<rect x="788" y="840" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="872" y="864" text-anchor="middle" fill="#0f172a">interfaces</text>
+<rect x="693" y="724" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="777" y="748" text-anchor="middle" fill="#0f172a">live</text>
+<rect x="883" y="492" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="967" y="516" text-anchor="middle" fill="#0f172a">monitoring</text>
+<rect x="598" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="682" y="400" text-anchor="middle" fill="#0f172a">optimization</text>
+<rect x="883" y="724" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="967" y="748" text-anchor="middle" fill="#0f172a">paper</text>
+<rect x="788" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="872" y="400" text-anchor="middle" fill="#0f172a">portfolio</text>
+<rect x="978" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="1062" y="400" text-anchor="middle" fill="#0f172a">promotion</text>
+<rect x="1168" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="1252" y="400" text-anchor="middle" fill="#0f172a">research</text>
+<rect x="788" y="260" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="872" y="284" text-anchor="middle" fill="#0f172a">shared</text>
+<rect x="1073" y="492" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="1157" y="516" text-anchor="middle" fill="#0f172a">storage</text>
+<rect x="1358" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="1442" y="400" text-anchor="middle" fill="#0f172a">validation</text>
+<rect x="1548" y="376" width="168" height="40" rx="5" fill="#f8fafc" stroke="#475569" stroke-width="1"/>
+<text x="1632" y="400" text-anchor="middle" fill="#0f172a">walkforward</text>
+</svg>

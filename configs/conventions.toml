@@ -164,6 +164,9 @@ romper el determinismo: la segunda corrida ve lo que dejo la primera.
 "app/core/registry/registry.py" = { forbid_global_mutable_state = true, why = "el catalogo es estado de modulo por diseno; se puebla en import y luego es de solo lectura" }
 "app/core/validation.py" = { require_frozen_dataclasses = true, why = "ValidationReport es un acumulador: se construye incrementalmente durante un recorrido y se congela por convencion al devolverse. Un informe inmutable obligaria a reconstruirlo por cada hallazgo" }
 "app/core/registry/loader.py" = { require_frozen_dataclasses = true, why = "Loader acumula el inventario de lo importado a lo largo de varias llamadas; su salida (LoadReport) si es inmutable" }
+"app/core/config/provenance.py" = { require_frozen_dataclasses = true, why = "ResolutionTrace es el acumulador de la resolucion: se llena capa a capa y se trata como solo lectura al devolverse. Los objetos que TRANSPORTA -Origin y ResolvedValue, que son los que se persisten y se comparan entre corridas- si son frozen, y son ellos los que sostienen la reproducibilidad" }
+"app/events/bus.py" = { require_frozen_dataclasses = true, why = "DeliveryReport se rellena DURANTE la entrega: cada suscriptor que recibe o falla se anota al ocurrir. Marcarlo frozen no lo haria inmutable -sus campos son listas y `append` seguiria funcionando- sino que declararia una garantia que el tipo no da. Subscription, que si describe un hecho cerrado, es frozen" }
+"app/events/recorder.py" = { require_frozen_dataclasses = true, why = "Recorder ES el buffer de auditoria: su unica funcion es acumular la secuencia de eventos y, con `max_events`, descartar los mas antiguos. Un grabador inmutable es una contradiccion; la inmutabilidad esta donde importa, en Event" }
 
 ###############################################################################
 # NOMENCLATURA
@@ -175,6 +178,7 @@ classes = "PascalCase"
 functions = "snake_case"
 constants = "UPPER_SNAKE_CASE"
 private_prefix = "_"
+exception_suffix_required = false
 forbid_abbreviations = [
     "mgr", "tmp", "val", "obj", "res", "calc", "proc", "util", "helper", "data2",
 ]
@@ -184,6 +188,21 @@ forbid_abbreviations = """
 Un nombre debe comunicar intencion. `calc_val` no dice si calcula un precio, un
 tamano o una metrica, y en una plataforma donde esas tres cosas conviven en la
 misma funcion, la ambiguedad se paga.
+"""
+exception_suffix_required = """
+Las excepciones NO llevan sufijo `Error` obligatorio. Nombran el HECHO que
+impide continuar, no la categoria del objeto: `LookaheadDetected`,
+`OrderRejected`, `RiskViolation`, `NotValidated`. En el punto de captura eso se
+lee como lo que es -`except LookaheadDetected:`- mientras que
+`LookaheadDetectedError` solo anade una palabra que ya aporta la jerarquia:
+todas descienden de `PlatformError`.
+
+Las raices de cada subsistema si lo llevan -`PlatformError`, `ContainerError`,
+`RegistryError`, `ConfigError`- porque ahi el sufijo distingue la categoria del
+caso concreto, que es justo cuando aporta.
+
+Esta regla desactiva `N818` de ruff. Se declara aqui y no en `pyproject.toml`
+porque la nomenclatura la gobierna este contrato (P4/P5); el linter la consume.
 """
 
 ###############################################################################

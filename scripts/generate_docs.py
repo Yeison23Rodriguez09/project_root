@@ -84,7 +84,7 @@ def render() -> str:
             [[pid, title] for pid, title in sorted(laws.items(), key=lambda kv: int(kv[0][1:]))],
         )
     )
-    out.append(f"\nTexto completo en [`CONSTITUTION.md`](../CONSTITUTION.md).\n")
+    out.append("\nTexto completo en [`CONSTITUTION.md`](../CONSTITUTION.md).\n")
 
     # -- capacidades --------------------------------------------------------
     out.append("\n## Capacidades\n")

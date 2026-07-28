@@ -93,5 +93,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+__all__ = ["main"]
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,1 @@
+main: app.interfaces.cli, app.interfaces.cli.doctor, app.interfaces.cli.status

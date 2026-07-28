@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import ast
 import tomllib
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -99,7 +99,7 @@ def _limit_for(name: str, path: Path) -> int:
     return int(exempt.get(name, limits().get(name, 10**9)))
 
 
-@lru_cache(maxsize=None)
+@cache
 def _parse(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
 
@@ -334,10 +334,20 @@ def test_no_uninjected_randomness(path: Path) -> None:
             pytest.fail(f"{_relative(path)}:{node.lineno} importa `random`.")
         if isinstance(node, ast.ImportFrom) and node.module == "random":
             pytest.fail(f"{_relative(path)}:{node.lineno} importa de `random`.")
-    assert "np.random.seed" not in path.read_text(encoding="utf-8"), (
-        f"{_relative(path)} usa `np.random.seed`, que muta estado global. "
-        "Usa `rng_for(...)`."
-    )
+        # Sobre el AST y no sobre el texto: `app/core/determinism.py` documenta
+        # en su docstring por que NO usa `np.random.seed`, y una busqueda por
+        # subcadena denuncia esa explicacion como si fuera la infraccion. Una
+        # regla que castiga documentarse termina sin documentacion o sin regla.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and ast.unparse(node.func).endswith("random.seed")
+        ):
+            pytest.fail(
+                f"{_relative(path)}:{node.lineno} llama a "
+                f"{ast.unparse(node.func)}(), que muta estado global. "
+                "Usa `rng_for(...)`."
+            )
 
 
 @pytest.mark.contract
@@ -361,9 +371,12 @@ def test_no_global_mutable_state(path: Path) -> None:
     for node in _parse(path).body:
         if isinstance(node, ast.AnnAssign):
             annotation = ast.unparse(node.annotation) if node.annotation else ""
-            if node.value is not None and isinstance(node.value, mutable):
-                if "Final" not in annotation:
-                    offenders.append(f"linea {node.lineno}: {ast.unparse(node.target)}")
+            if (
+                node.value is not None
+                and isinstance(node.value, mutable)
+                and "Final" not in annotation
+            ):
+                offenders.append(f"linea {node.lineno}: {ast.unparse(node.target)}")
         elif isinstance(node, ast.Assign) and isinstance(node.value, mutable):
             names = [ast.unparse(t) for t in node.targets if not ast.unparse(t).startswith("__")]
             offenders += [f"linea {node.lineno}: {n}" for n in names]

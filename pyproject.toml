@@ -327,9 +327,28 @@ select = [
 
 ]
 
+# Toda supresion lleva su motivo (P9). Ninguna se anade sin decir por que, y el
+# motivo remite al contrato que la gobierna cuando existe: la regla vive una vez.
 ignore = [
 
-    "E501"
+    # Longitud de linea: la formatea `line-length = 100` de arriba. Duplicar la
+    # comprobacion solo produce dos numeros que pueden discrepar.
+    "E501",
+
+    # Sufijo `Error` obligatorio en excepciones. Lo gobierna
+    # `configs/conventions.toml` -> [naming].exception_suffix_required = false,
+    # donde esta el razonamiento completo. Las excepciones de esta plataforma
+    # nombran el hecho (`LookaheadDetected`), no la categoria.
+    "N818",
+
+    # `isinstance(x, (A, B))` -> `isinstance(x, A | B)`. Se rechaza por dos
+    # motivos. Ruff retiro esta regla en 0.12 precisamente porque la forma con
+    # union construye un objeto `types.UnionType` en cada llamada y es mas lenta
+    # que la tupla, que se evalua una sola vez. Y el `isinstance` sobre tuplas
+    # aparece en los recorridos de AST de la gobernanza y en la validacion de
+    # `Bars`, que son rutas calientes. Adoptar hoy una regla que la herramienta
+    # ya retiro seria reescribir codigo para volver a reescribirlo despues.
+    "UP038",
 
 ]
 

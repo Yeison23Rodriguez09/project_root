@@ -1,0 +1,1 @@
+"""Endpoints de monitoreo, opcionales."""

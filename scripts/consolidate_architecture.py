@@ -51,6 +51,7 @@ PACKAGES: dict[str, str] = {
     "app/core/config": "Configuracion: esquema, precedencia y procedencia. Puro.",
     "app/events": "Bus de eventos en proceso. Mecanismo puro, sin I/O.",
     "app/config": "Proveedores de configuracion. Unico lugar que lee ficheros de config.",
+    "app/config/providers": "Un fichero por mecanismo de lectura. No reexporta.",
     "app/container": "Raiz de composicion: inyeccion, arranque y ciclo de vida.",
     "app/shared": "Nivel 2: puertos (Protocol) entre el dominio y el mundo.",
     # -- casos de uso: un paquete por caso, con contrato explicito.
@@ -180,12 +181,12 @@ MOVES: tuple[Move, ...] = (
 #: NO los crea: solo los declara para que el plan sea explicito y quede
 #: constancia de lo que falta. Crearlos vacios violaria "cada archivo tiene un
 #: proposito".
-PENDING_SPLITS: tuple[tuple[str, str], ...] = (
-    ("app/config/providers/yaml.py", "YamlFileProvider, proveedor opcional"),
-    ("app/config/providers/env.py", "EnvironmentProvider y la traduccion QP_*"),
-    ("app/config/providers/cli.py", "CommandLineProvider y MappingProvider"),
-    ("app/config/providers/base.py", "el Protocol ConfigProvider y `coerce`"),
-)
+#:
+#: Vacio desde el cierre de la fase 2.5: la division de `app/config/providers/`
+#: en base, toml, yaml, env y cli ya esta hecha. La tabla se conserva porque es
+#: el mecanismo por el que una consolidacion futura declara lo que queda a mano,
+#: y borrarla obligaria a reinventarlo la proxima vez.
+PENDING_SPLITS: tuple[tuple[str, str], ...] = ()
 
 #: Rutas a eliminar del arbol y del indice de git.
 REMOVALS: tuple[tuple[str, str], ...] = (

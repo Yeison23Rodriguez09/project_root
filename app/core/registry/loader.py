@@ -163,7 +163,7 @@ class Loader:
             return sys.modules[dotted]
         try:
             module = importlib.import_module(dotted)
-        except Exception as exc:  # noqa: BLE001 - se reenvia tipado, no se traga
+        except Exception as exc:
             if self.strict:
                 raise PluginLoadError(
                     f"No se pudo importar {dotted!r}",

@@ -181,6 +181,6 @@ __all__ = [
     "Side",
     "StrategyId",
     "Symbol",
-    "TimestampNs",
     "Timeframe",
+    "TimestampNs",
 ]

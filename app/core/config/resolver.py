@@ -109,53 +109,88 @@ def resolve(
     for layer in ordered:
         trace.note_source(layer.origin)
 
+    candidates = _collect_candidates(ordered)
+    for key in sorted(candidates):
+        _resolve_key(trace, report, key, candidates[key])
+
+    if known_keys is not None:
+        _report_unknown_keys(trace, report, set(candidates), known_keys)
+
+    return trace, report
+
+
+def _collect_candidates(
+    ordered: Sequence[ConfigLayer],
+) -> dict[str, list[tuple[Any, Origin]]]:
+    """Propuestas por clave, de menor a mayor prioridad.
+
+    Las capas llegan ya ordenadas, asi que el ultimo elemento de cada lista es
+    siempre el ganador. Materializar la lista completa -y no solo el ganador- es
+    lo que permite despues explicar por que NO gano el valor que el usuario puso,
+    que es la pregunta real al depurar una configuracion.
+    """
     candidates: dict[str, list[tuple[Any, Origin]]] = {}
     for layer in ordered:
         for key, value in layer.values.items():
             candidates.setdefault(key, []).append((value, layer.origin_for(key)))
+    return candidates
 
-    for key in sorted(candidates):
-        proposals = candidates[key]
-        winner_value, winner_origin = proposals[-1]
 
-        if len(proposals) > 1:
-            top = int(winner_origin.priority)
-            tied = [o for _v, o in proposals[:-1] if int(o.priority) == top]
-            if tied:
-                report.add(
-                    "CONFIG_PRIORITY_TIE",
-                    f"Varias fuentes de igual prioridad fijan {key!r}; gana la ultima",
-                    Severity.WARNING,
-                    key=key,
-                    winner=str(winner_origin),
-                    tied=[str(o) for o in tied],
-                )
+def _resolve_key(
+    trace: ResolutionTrace,
+    report: ValidationReport,
+    key: str,
+    proposals: Sequence[tuple[Any, Origin]],
+) -> None:
+    """Elige el valor de una clave y registra su historia completa."""
+    winner_value, winner_origin = proposals[-1]
 
-        # Los descartados se guardan del mas prioritario al menos, que es el
-        # orden en que un humano quiere leerlos al depurar.
-        losers = tuple(reversed(proposals[:-1]))
-        trace.record(
-            ResolvedValue(
-                key=key,
-                value=winner_value,
-                origin=winner_origin,
-                overridden=losers,
-            )
-        )
-
-    if known_keys is not None:
-        for key in sorted(set(candidates) - known_keys):
-            source = trace.get(key).origin
+    if len(proposals) > 1:
+        top = int(winner_origin.priority)
+        tied = [o for _v, o in proposals[:-1] if int(o.priority) == top]
+        if tied:
             report.add(
-                "CONFIG_UNKNOWN_KEY",
-                f"Clave desconocida {key!r}",
-                Severity.ERROR,
+                "CONFIG_PRIORITY_TIE",
+                f"Varias fuentes de igual prioridad fijan {key!r}; gana la ultima",
+                Severity.WARNING,
                 key=key,
-                source=str(source),
-                hint=_closest(key, known_keys),
+                winner=str(winner_origin),
+                tied=[str(o) for o in tied],
             )
 
-    return trace, report
+    # Los descartados se guardan del mas prioritario al menos, que es el
+    # orden en que un humano quiere leerlos al depurar.
+    trace.record(
+        ResolvedValue(
+            key=key,
+            value=winner_value,
+            origin=winner_origin,
+            overridden=tuple(reversed(proposals[:-1])),
+        )
+    )
+
+
+def _report_unknown_keys(
+    trace: ResolutionTrace,
+    report: ValidationReport,
+    seen: set[str],
+    known_keys: frozenset[str],
+) -> None:
+    """Denuncia toda clave fuera del esquema, con sugerencia si la hay.
+
+    Se reporta como ERROR y no como aviso: una clave desconocida suele ser una
+    errata, y aceptarla en silencio hace que el sistema ejecute una
+    configuracion distinta de la que el usuario cree haber escrito.
+    """
+    for key in sorted(seen - known_keys):
+        report.add(
+            "CONFIG_UNKNOWN_KEY",
+            f"Clave desconocida {key!r}",
+            Severity.ERROR,
+            key=key,
+            source=str(trace.get(key).origin),
+            hint=_closest(key, known_keys),
+        )
 
 
 def require(trace: ResolutionTrace, keys: Sequence[str]) -> ValidationReport:

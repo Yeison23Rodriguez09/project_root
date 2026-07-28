@@ -30,13 +30,13 @@ from app.core.types import (
     TimestampNs,
 )
 from app.core.validation import ValidationReport
-from app.domain.bars import Bars
-from app.domain.instrument import Instrument
-from app.domain.metrics import PerformanceMetrics
-from app.domain.order import Order, OrderIntent
-from app.domain.signal import SignalOutput
-from app.domain.strategy_spec import StrategySpec
-from app.domain.trade import Position, Trade
+from app.domain.entities.bars import Bars
+from app.domain.entities.order import Order, OrderIntent
+from app.domain.entities.trade import Position, Trade
+from app.domain.value_objects.instrument import Instrument
+from app.domain.value_objects.metrics import PerformanceMetrics
+from app.domain.value_objects.signal import SignalOutput
+from app.domain.value_objects.strategy_spec import StrategySpec
 
 # ---------------------------------------------------------------------------
 # Tiempo

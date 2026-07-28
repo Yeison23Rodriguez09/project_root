@@ -19,7 +19,7 @@ from __future__ import annotations
 import ast
 import tomllib
 from collections.abc import Iterator
-from functools import lru_cache
+from functools import cache, lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -110,9 +110,21 @@ def _package_of(dotted: str) -> str:
     return PREFIX
 
 
-@lru_cache(maxsize=None)
+@cache
 def _parse(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+def _calls(path: Path) -> Iterator[tuple[str, int]]:
+    """(objetivo_punteado, linea) de cada llamada a un atributo del fichero.
+
+    Solo llamadas efectivas. Nombrar `datetime.now` en un docstring o guardar la
+    cadena en una tabla de reglas no es usar el reloj de pared, y confundir
+    ambas cosas convierte la prohibicion en un obstaculo para documentarla.
+    """
+    for node in ast.walk(_parse(path)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            yield ast.unparse(node.func), node.lineno
 
 
 def _imports(path: Path) -> Iterator[tuple[str, int, int]]:
@@ -366,12 +378,17 @@ def test_no_wall_clock(path: Path) -> None:
     package = _package_of(_module_name(path))
     if layer_of().get(package) not in forbidden_layers:
         return
-    source = path.read_text(encoding="utf-8")
-    for needle in ("datetime.now(", "datetime.utcnow(", "time.time("):
-        assert needle not in source, (
-            f"{path.relative_to(ROOT)} usa {needle} en capa "
-            f"'{layer_of().get(package)}'. Inyecta ClockPort."
-        )
+    # Se inspecciona el AST y no el texto. Una busqueda por subcadena acierta en
+    # el docstring que EXPLICA la prohibicion -`app/shared/ports.py` existe
+    # precisamente para que nadie llame a `datetime.now()`- y denuncia como
+    # violacion la documentacion de la propia regla. Una regla que no distingue
+    # su enunciado de su incumplimiento acaba desactivada, que es peor.
+    for call, line in _calls(path):
+        for needle in ("datetime.now", "datetime.utcnow", "time.time"):
+            assert not call.endswith(needle), (
+                f"{path.relative_to(ROOT)}:{line} llama a {call}() en capa "
+                f"'{layer_of().get(package)}'. Inyecta ClockPort."
+            )
 
 
 @pytest.mark.contract

@@ -13,23 +13,20 @@ from __future__ import annotations
 
 import time
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from app.config.providers import (
-    CommandLineProvider,
-    EnvironmentProvider,
-    MappingProvider,
-    TomlFileProvider,
-)
+from app.config.providers.cli import CommandLineProvider, MappingProvider
+from app.config.providers.env import EnvironmentProvider
+from app.config.providers.toml import TomlFileProvider
 from app.container.container import Container, Scope
 from app.core.config.fingerprint import ConfigFingerprint, fingerprint
 from app.core.config.provenance import Priority, ResolutionTrace
 from app.core.config.resolver import ConfigLayer, resolve
 from app.core.exceptions import ConfigValidationError
 from app.core.registry.registry import Registry
-from app.events.bus import EventBus, ErrorPolicy
+from app.events.bus import ErrorPolicy, EventBus
 from app.events.event import Event
 from app.events.recorder import Recorder
 from app.shared.ports import ClockPort

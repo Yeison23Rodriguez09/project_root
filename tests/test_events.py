@@ -31,7 +31,7 @@ def bus(**kwargs: object) -> EventBus:
     return EventBus(Ticker(), **kwargs)  # type: ignore[arg-type]
 
 
-def collector(log: list[str], name: str):  # noqa: ANN201
+def collector(log: list[str], name: str):
     def listen(event: Event) -> None:
         log.append(f"{name}:{event.name}")
 
@@ -149,12 +149,12 @@ def test_middlewares_wrap_delivery_in_registration_order() -> None:
     log: list[str] = []
     event_bus = bus()
 
-    def outer(event: Event, nxt) -> None:  # noqa: ANN001
+    def outer(event: Event, nxt) -> None:
         log.append("outer:in")
         nxt(event)
         log.append("outer:out")
 
-    def inner(event: Event, nxt) -> None:  # noqa: ANN001
+    def inner(event: Event, nxt) -> None:
         log.append("inner:in")
         nxt(event)
         log.append("inner:out")

@@ -34,6 +34,8 @@ porque define la superficie publica del subsistema: los consumidores importan
 de `app.core.registry` y quedan aislados de una reorganizacion interna.
 """
 
+from __future__ import annotations
+
 from app.core.registry.decorators import register, warmup_from, warmup_sum
 from app.core.registry.exceptions import (
     DuplicateComponent,
@@ -42,8 +44,8 @@ from app.core.registry.exceptions import (
     UnknownComponent,
 )
 from app.core.registry.loader import (
-    LoadReport,
     Loader,
+    LoadReport,
     PluginLoadError,
     load_default_components,
 )
