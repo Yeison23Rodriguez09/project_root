@@ -290,12 +290,27 @@ def is_git_repo() -> bool:
 
 
 def python_files() -> list[Path]:
-    """Todos los `.py` versionables del arbol, excluyendo entornos y caches."""
+    """Todos los `.py` versionables del arbol, excluyendo entornos y caches.
+
+    Este mismo fichero queda fuera. No es una comodidad: es el unico modulo del
+    repositorio que contiene los nombres antiguos como DATO -las tablas
+    `REMOVALS`, `IMPORT_REWRITES` y `FORBIDDEN_AFTER` los declaran-. Incluirlo
+    tendria dos efectos, ambos incorrectos: la reescritura corromperia sus
+    propias reglas -`(app.core.errors -> app.core.exceptions)` pasaria a ser
+    `(app.core.exceptions -> app.core.exceptions)`, dejando el script sin efecto
+    en cuanto se ejecutase dos veces- y la comprobacion final lo denunciaria a
+    si mismo para siempre, de modo que la consolidacion nunca podria declararse
+    completa y el tag `architecture-baseline` nunca llegaria a crearse.
+
+    El script es la herramienta, no el arbol que gobierna.
+    """
     excluded = {".git", ".venv", "venv", "__pycache__", ".mypy_cache", ".ruff_cache"}
+    this_file = Path(__file__).resolve()
     return [
         p
         for p in ROOT.rglob("*.py")
         if not any(part in excluded for part in p.relative_to(ROOT).parts)
+        and p.resolve() != this_file
     ]
 
 
