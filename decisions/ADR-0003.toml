@@ -1,0 +1,88 @@
+id = "ADR-0003"
+title = "El catalogo de componentes vive en core; el descubrimiento, aparte"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "research", "discovery"]
+
+context = """
+El catalogo de componentes lo ESCRIBEN `research.features` y `research.signals`
+al darse de alta, y lo LEE `discovery` para enumerar el espacio de busqueda.
+
+La ubicacion intuitiva es `discovery`, porque el catalogo existe para servir a la
+busqueda. Pero eso invierte la dependencia: el productor pasaria a depender de su
+consumidor, y `research` -que debe poder ejecutarse sin que discovery exista-
+arrastraria el subsistema de busqueda entero.
+
+Colocarlo en `shared` tambien se descarto: `shared` contiene puertos, no
+mecanismos, y meter una pieza de motor ahi convierte ese paquete en el cajon
+donde acaba todo lo que no encuentra sitio.
+"""
+
+decision = """
+El mecanismo generico vive en `app/core/registry/`, dividido por responsabilidad:
+`params`, `protocols`, `metadata`, `registry`, `decorators`, `loader` y
+`exceptions`. Solo depende de `core.exceptions`, asi que los tres implicados
+apuntan hacia dentro.
+
+Catalogo y descubrimiento estan separados: `Registry` guarda, `Loader` encuentra
+e importa, y ninguno conoce al otro. El unico vinculo es que el decorador se
+ejecuta durante la importacion.
+
+Lo construido SOBRE el mecanismo si pertenece a `discovery`: `catalog`, `graph`,
+`generator`, `evolution`, `constraints`, `serialization`, `scoring` y `pruning`.
+"""
+
+consequences = """
+Se gana: anadir un indicador es escribir la funcion y decorarla; entra en la
+siguiente corrida de discovery por si solo, sin listas paralelas que mantener.
+Se puede cargar un directorio `plugins/` externo -o manana un zip, un wheel o un
+repositorio remoto- sin tocar el catalogo, porque el catalogo no sabe de donde
+vienen las cosas.
+
+Se pierde: el catalogo es estado de modulo, que la regla
+`forbid_global_mutable_state` prohibe. Se documenta como excepcion nominada en
+`conventions.toml` con su motivo: se puebla una vez en tiempo de importacion y
+despues es de solo lectura. La alternativa -pasar el registro por argumento hasta
+cada decorador- haria el alta tan incomoda que nadie declararia sus parametros,
+y son los parametros los que dan valor al catalogo.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_architecture.py::test_matrix_is_respected"
+description = """
+La matriz declara que `research` solo puede importar de `core`, `domain` y
+`shared`. Si alguien moviera el registry a `discovery`, todos los modulos de
+features fallarian el test de inmediato, senalando la inversion.
+"""
+
+[rollback]
+description = """
+Barato mientras el catalogo no tenga consumidores externos: mover el paquete y
+reescribir los imports. Se encarece en cuanto existan plugins de terceros que
+importen `app.core.registry`, porque su ruta publica pasaria a ser incompatible.
+"""
+effort = "horas"
+
+[[alternatives]]
+option = "registry dentro de app/discovery"
+rejected_because = """
+Invierte la dependencia: `research` tendria que importar de `discovery`, su
+consumidor. Es la razon principal de esta decision.
+"""
+
+[[alternatives]]
+option = "registry en app/shared"
+rejected_because = """
+`shared` declara puertos, no implementa mecanismos. Admitir uno abre la puerta a
+que se convierta en el cajon de sastre del proyecto.
+"""
+
+[[alternatives]]
+option = "Un unico fichero app/core/registry.py"
+rejected_because = """
+En una plataforma de este tamano acabaria siendo un objeto-dios. La division por
+responsabilidad -catalogo, metadatos, parametros, decoradores, carga- permite que
+cada pieza crezca sin arrastrar a las demas.
+"""

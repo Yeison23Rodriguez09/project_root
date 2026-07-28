@@ -1,0 +1,213 @@
+###############################################################################
+# PLUGINS.TOML - Contrato de plugins
+#
+# Describe QUE debe cumplir el codigo nuevo para entrar. No describe como se
+# descubre: eso es responsabilidad de `app.core.registry.loader`, y mantener
+# ambas cosas separadas es lo que permite cambiar el mecanismo de carga -carpeta
+# local, zip, wheel, repositorio remoto- sin tocar el contrato.
+#
+# Un plugin que no cumple este contrato no se carga a medias: no se carga. Un
+# bloque cargado sin metadatos completos entra en el espacio de busqueda sin
+# poder ser auditado despues, y una corrida de discovery sobre un espacio que no
+# se puede reconstruir no es reproducible.
+###############################################################################
+
+[meta]
+version = 1
+api_version = "1.0"
+manifest_filename = "plugin.toml"
+
+# Principios de CONSTITUTION.md que sostienen este contrato.
+[principle]
+isolation = "P2"
+required_metadata = "P9"
+single_name_authority = "P5"
+
+[principle.rationale]
+isolation = """
+Un plugin ve exactamente lo mismo que un motor de calculo: primitivas, dominio y
+puertos. No debe saber siquiera que `execution` existe. Es P2 aplicado al codigo
+que entra desde fuera, donde mas facil seria concederle una excepcion.
+"""
+single_name_authority = """
+`load_order = "internal_first"` garantiza que un plugin no pueda secuestrar el
+nombre `ema` y cambiar en silencio el significado de todas las estrategias del
+zoo que lo referencian. Un nombre, una autoridad.
+"""
+
+###############################################################################
+# METADATOS OBLIGATORIOS
+#
+# Cada plugin lleva un `plugin.toml` en su raiz con estos campos. Sin uno solo
+# de ellos, el loader rechaza el paquete.
+###############################################################################
+
+[manifest]
+required = [
+    "name",           # identificador estable; se persiste en los StrategySpec
+    "version",        # semver del propio plugin
+    "api_version",    # version del contrato que dice cumplir
+    "kind",           # feature | signal | strategy | statistical_test | broker
+    "capability",     # capacidad del sistema a la que pertenece
+    "owner",          # quien responde de este codigo
+    "description",    # una linea
+    "provides",       # nombres que registra, para detectar colisiones sin importar
+]
+
+optional = [
+    "homepage",
+    "requires_plugins",   # dependencias entre plugins, por nombre y rango
+    "deprecated_since",
+    "replaced_by",
+]
+
+[manifest.rationale]
+provides = """
+Declarar por adelantado los nombres que va a registrar permite detectar una
+colision ANTES de importar nada. Sin esto, el conflicto aparece a mitad de la
+carga, con parte del catalogo ya poblado y parte no, que es el peor estado
+posible para diagnosticar.
+"""
+api_version = """
+Un plugin declara contra que version del contrato fue escrito. El loader
+compara: si el plugin pide una API mayor que la vigente, se rechaza en lugar de
+fallar mas tarde con un AttributeError incomprensible.
+"""
+owner = """
+Un plugin sin responsable es un plugin que nadie arregla. En un catalogo de
+cientos de bloques, saber a quien preguntar es la diferencia entre corregir y
+desactivar.
+"""
+
+###############################################################################
+# COMPATIBILIDAD
+###############################################################################
+
+[compatibility]
+# Rango de `api_version` que este nucleo acepta.
+min_api_version = "1.0"
+max_api_version = "1.x"
+on_version_mismatch = "reject"     # reject | warn
+on_duplicate_name = "reject"
+on_missing_metadata = "reject"
+on_import_error = "reject"
+
+[compatibility.rationale]
+on_import_error = """
+`reject`, no `warn`. Un plugin que no importa significa que faltan bloques del
+espacio de busqueda. Degradarlo a aviso produce corridas que parecen completas y
+exploraron menos de lo que dicen.
+"""
+
+###############################################################################
+# CONTRATOS POR TIPO
+#
+# Que debe cumplir cada clase de plugin. Son los mismos contratos que cumple el
+# codigo interno: un plugin externo no tiene privilegios ni restricciones extra.
+###############################################################################
+
+[contracts.feature]
+signature = "(bars: Bars, **params) -> FloatArray"
+must_declare = ["params", "warmup", "tags"]
+must_be_pure = true
+must_be_causal = true
+output_length = "len(bars)"
+warmup_prefix = "NaN"
+rationale = """
+`warmup_prefix = "NaN"` y no cero. Cero es un valor legitimo para muchos
+indicadores; confundirlo con "aun no calculable" genera senales fantasma al
+inicio de cada fold, justo donde el walk-forward es mas sensible.
+"""
+
+[contracts.signal]
+signature = "(frame: FeatureFrame, **params) -> SignalOutput"
+must_declare = ["params", "warmup", "tags"]
+must_be_pure = true
+must_be_causal = true
+must_emit_reason_codes = true
+rationale = """
+`must_emit_reason_codes`: un bloque que devuelve ceros sin motivo rompe el
+embudo de descarte y con el la capacidad de responder por que una estrategia no
+opera.
+"""
+
+[contracts.strategy]
+signature = "(spec: StrategySpec) -> tuple[SignalOutput, ...]"
+must_declare = ["params", "tags"]
+must_be_pure = true
+
+[contracts.statistical_test]
+signature = "(trades, equity, bars, seed) -> Mapping[str, Any]"
+must_return = ["statistic", "p_value", "verdict"]
+must_be_deterministic_given_seed = true
+rationale = """
+Forma de salida fija para que la politica de promocion pueda componer pruebas
+heterogeneas sin conocerlas una por una.
+"""
+
+[contracts.broker]
+implements = "app.shared.ports.BrokerPort"
+must_be_idempotent = true
+must_accept_client_id = true
+rationale = """
+`must_be_idempotent`: en una reconexion el motor puede reenviar una orden ya
+aceptada. Duplicarla es inaceptable, y la idempotencia se resuelve con
+`client_id`, no con esperanza.
+"""
+
+###############################################################################
+# AISLAMIENTO
+###############################################################################
+
+[isolation]
+# Un plugin no puede importar de estas capas: solo ve el nucleo publico.
+allowed_imports = ["app.core", "app.domain", "app.shared"]
+forbidden_imports = [
+    "app.broker", "app.storage", "app.monitoring",
+    "app.application", "app.live", "app.paper", "app.interfaces",
+]
+allow_network = false
+allow_filesystem = false
+allow_subprocess = false
+
+[isolation.rationale]
+allowed_imports = """
+Un plugin ve exactamente lo mismo que un motor de calculo: primitivas, dominio y
+puertos. Si pudiera importar `app.broker`, un indicador de terceros podria
+consultar precios en vivo durante un backtest, y el backtest dejaria de ser
+reproducible sin que nada lo delatara.
+"""
+allow_filesystem = """
+Un plugin que lee de disco introduce una entrada no declarada: el resultado
+dejaria de depender solo de (datos, configuracion, semilla). Si un bloque
+necesita una tabla externa, entra por configuracion, no por lectura directa.
+"""
+
+###############################################################################
+# DIRECTORIOS DE BUSQUEDA
+#
+# El QUE, no el COMO. El loader decide el mecanismo; aqui solo se declara donde
+# se permite mirar y en que orden.
+###############################################################################
+
+[discovery]
+internal_packages = [
+    "app.research.features",
+    "app.research.signals",
+    "app.research.strategies",
+]
+external_directories = ["plugins"]
+load_order = "internal_first"
+require_package_layout = true
+
+[discovery.rationale]
+load_order = """
+`internal_first`: los bloques del nucleo reclaman su nombre antes que los
+externos. Asi un plugin no puede secuestrar el nombre `ema` y cambiar en
+silencio el significado de todas las estrategias del zoo que lo referencian.
+"""
+require_package_layout = """
+Un plugin es un directorio con `__init__.py`, no un `.py` suelto. Obligarlo deja
+sitio desde el primer dia para su manifiesto, sus pruebas y sus datos de
+referencia.
+"""

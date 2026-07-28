@@ -1,0 +1,214 @@
+###############################################################################
+# RUNTIME.TOML - Contrato de ejecucion
+#
+# Describe COMO puede ejecutarse el sistema. Cada modo activa un conjunto
+# distinto de restricciones.
+#
+# La razon de existir de este fichero: sin el, las salvaguardas viven dispersas
+# en condicionales del tipo `if env == "live"`. Repartidas asi es imposible
+# responder a la pregunta que importa -"que impide que una estrategia sin
+# validar llegue a produccion?"- sin leer el codigo entero.
+#
+# Aqui la respuesta es una linea: `live.require_promoted_state = true`.
+#
+# Los modos son ortogonales al entorno del broker. `live` con broker demo sigue
+# siendo modo `live`: las mismas restricciones se aplican, porque la diferencia
+# entre demo y real no debe cambiar el comportamiento del sistema.
+###############################################################################
+
+[meta]
+version = 1
+default_mode = "research"
+
+###############################################################################
+# INVARIANTES DE GOBIERNO
+#
+# No son parametros heredables: son garantias que ningun modo puede romper. La
+# distincion importa. Relajar un `allow_*` es una decision de conveniencia
+# visible en el diff; romper uno de estos invariantes es un fallo de gobierno.
+###############################################################################
+
+[invariants]
+broker_orders_require_promotion_and_approval = true
+safeguards_never_discounted = true
+live_accepts_only_promoted_states = true
+
+[invariants.principle]
+broker_orders_require_promotion_and_approval = "P8"
+safeguards_never_discounted = "P10"
+live_accepts_only_promoted_states = "P8"
+
+[invariants.rationale]
+broker_orders_require_promotion_and_approval = """
+La promocion es tecnica y la aprobacion es humana. Una estrategia puede ser
+estadisticamente promovible y operativamente rechazada: activo deshabilitado,
+limite de capital, restriccion legal, riesgo que nadie quiere asumir. Exigir
+ambas es lo que impide que el buscador automatico tenga autoridad para desplegar.
+"""
+safeguards_never_discounted = """
+Ningun modo puede poner en `false` un `require_*` que herede en `true`. Las
+salvaguardas se acumulan hacia abajo; nunca se descuentan. Asi es como se abren
+los agujeros que nadie recuerda haber abierto.
+"""
+live_accepts_only_promoted_states = """
+Un `candidate` en produccion es la definicion exacta del fallo que este proyecto
+existe para evitar.
+"""
+
+###############################################################################
+# MODOS
+#
+# `inherits` compone: un modo hereda del padre y solo redeclara lo que cambia.
+# Relajar un `allow_*` heredado es legitimo y queda visible en el diff -`research`
+# abre la red que `deterministic` cierra-, pero hay dos invariantes que ningun
+# modo puede romper y que `tests/test_governance.py` verifica:
+#
+#   1. Un modo con `allow_broker_orders = true` debe exigir `require_promoted_state`
+#      y `require_approval_record`. No hay forma de mover dinero sin validacion y
+#      sin constancia de quien aprobo.
+#   2. Ningun modo puede poner en `false` un `require_*` que herede en `true`.
+#      Las salvaguardas se acumulan hacia abajo; nunca se descuentan.
+###############################################################################
+
+[modes.deterministic]
+purpose = "Base de todos los demas. Determinismo absoluto, sin excepciones."
+requires_seed = true
+requires_clock_injection = true
+allow_network = false
+allow_broker_orders = false
+allow_wall_clock = false
+allow_parallelism = false
+rationale = """
+`allow_parallelism = false` aqui no es una limitacion de rendimiento: es lo que
+garantiza que el orden de reduccion en las sumas de punto flotante sea siempre
+el mismo. Dos ejecuciones paralelas pueden sumar el mismo conjunto de PnL en
+distinto orden y diferir en el ultimo bit. En una comparacion antes/despues eso
+es indistinguible de una mejora real.
+"""
+
+[modes.research]
+inherits = "deterministic"
+purpose = "Exploracion interactiva. Puede leer datos y escribir artefactos."
+allow_network = true
+allow_artifact_writes = true
+allow_parallelism = true
+require_promoted_state = false
+rationale = """
+Se permite paralelismo porque en investigacion importa la velocidad de
+iteracion, pero cualquier resultado que vaya a compararse formalmente debe
+reejecutarse en modo `benchmark`, que lo prohibe.
+"""
+
+[modes.benchmark]
+inherits = "deterministic"
+purpose = "Medicion formal. Es el unico modo cuyos numeros pueden compararse entre corridas."
+allow_artifact_writes = true
+allow_parallelism = false
+require_baseline = true
+require_config_hash = true
+rationale = """
+`require_baseline = true`: un benchmark sin baseline no mide nada. Es la
+salvaguarda contra la trampa mas comun del proyecto anterior, que es declarar
+una mejora sin tener el numero previo.
+"""
+
+[modes.ci]
+inherits = "deterministic"
+purpose = "Verificacion automatica. Sin red, sin datos externos, sin broker."
+allow_network = false
+allow_artifact_writes = false
+allow_parallelism = true
+require_synthetic_data_only = true
+max_duration_seconds = 900
+rationale = """
+`require_synthetic_data_only`: los tests generan sus series. Un test que
+depende de un fichero de mercado descargado deja de ser reproducible el dia que
+ese fichero cambia, y falla por el motivo equivocado.
+"""
+
+[modes.paper]
+inherits = "research"
+purpose = "Feed en tiempo real, sin ejecucion real."
+allow_network = true
+allow_broker_orders = false
+allow_wall_clock = true
+require_promoted_state = true
+require_audit_trail = true
+rationale = """
+Exige estado promovido igual que `live`. Si paper aceptara candidatos sin
+validar, seria un atajo para llegar a produccion "solo para probar", y ese
+atajo se usa siempre.
+"""
+
+[modes.live]
+inherits = "paper"
+purpose = "Ejecucion real. El unico modo que puede mover dinero."
+allow_broker_orders = true
+require_promoted_state = true
+require_approval_record = true
+require_risk_limits = true
+require_audit_trail = true
+require_kill_switch = true
+forbid_config_hot_reload = true
+rationale = """
+`require_approval_record`: no basta con que la estrategia este promovida; debe
+existir constancia de quien la aprobo y cuando. La promocion es tecnica, la
+aprobacion es humana, y confundirlas quita el ultimo control.
+
+`forbid_config_hot_reload`: en vivo la configuracion se congela al arrancar el
+ciclo. Recargarla en caliente significa que el sistema que evaluo la barra `i`
+no es el mismo que evaluo la `i-1`, y entonces la auditoria posterior no puede
+reconstruir la decision.
+"""
+
+###############################################################################
+# MATRIZ DE PAQUETES POR MODO
+#
+# Que paquetes pueden participar en cada modo. Es la version ejecutable de "el
+# investigador no puede enviar ordenes por accidente".
+###############################################################################
+
+[allowed_packages]
+deterministic = ["core", "domain", "shared", "research", "analytics", "portfolio"]
+research = [
+    "core", "domain", "shared", "research", "analytics", "portfolio",
+    "walkforward", "validation", "optimization", "discovery",
+    "storage", "monitoring", "application", "interfaces",
+]
+benchmark = [
+    "core", "domain", "shared", "research", "analytics", "portfolio",
+    "walkforward", "validation", "storage", "application", "interfaces",
+]
+ci = ["core", "domain", "shared", "research", "analytics", "portfolio", "execution"]
+paper = [
+    "core", "domain", "shared", "research", "analytics", "portfolio",
+    "execution", "broker", "storage", "monitoring", "application",
+    "interfaces", "paper",
+]
+live = [
+    "core", "domain", "shared", "research", "analytics", "portfolio",
+    "execution", "broker", "storage", "monitoring", "promotion",
+    "application", "interfaces", "live",
+]
+
+###############################################################################
+# ESTADOS DE CICLO DE VIDA ADMITIDOS POR MODO
+#
+# Traduce el gobierno del zoo a una restriccion de ejecucion.
+###############################################################################
+
+[allowed_lifecycle_states]
+research = ["candidate", "validated", "promoted", "live", "retired", "rejected"]
+benchmark = ["candidate", "validated", "promoted"]
+paper = ["promoted", "live"]
+live = ["promoted", "live"]
+
+[allowed_lifecycle_states.rationale]
+research = """
+En investigacion se puede mirar todo, incluso lo rechazado: entender por que algo
+fallo tiene valor y el zoo conserva los rechazos precisamente para eso.
+"""
+live = """
+Solo `promoted` y `live`. Un `candidate` en produccion es la definicion del
+fallo que este proyecto existe para evitar.
+"""

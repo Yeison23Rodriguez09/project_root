@@ -1,0 +1,125 @@
+id = "ADR-0006"
+title = "La Fase 3 construye una plataforma; los motores no empiezan hasta la Fase 4"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "shared", "config", "events", "container", "monitoring"]
+
+context = """
+La Fase 3 se habia definido como "configuracion". Al detallarla quedo claro que
+la configuracion es solo el primer bloque de algo mayor: la plataforma sobre la
+que viviran todos los motores.
+
+El riesgo de no reconocerlo es concreto y es el que hundio el proyecto anterior.
+Si los motores empiezan antes de que existan inyeccion de dependencias, sistema
+de plugins, bus de eventos y ciclo de vida, cada motor inventa su propia version
+de las cuatro cosas. Cuando la plataforma llega despues, hay que reescribir todos
+los motores para adoptarla, y nunca se hace: se adopta a medias y quedan dos
+mecanismos conviviendo. Eso es exactamente la base no estabilizada sobre la que
+se siguio construyendo.
+"""
+
+decision = """
+La Fase 3 pasa a ser la capa de plataforma, en ocho bloques independientes:
+
+    3.1  Configuration Framework
+    3.2  Dependency Injection
+    3.3  Plugin System
+    3.4  Event Bus
+    3.5  Lifecycle
+    3.6  Observability
+    3.7  Persistence Contracts
+    3.8  Service Container
+
+Hasta cerrarla no existe ninguna estrategia, ningun algoritmo y ningun backtest.
+
+La Fase 4 implementa los motores, todos con la misma anatomia -`command`,
+`request`, `response`, `service`, `runner`, `events`, `metrics`,
+`configuration`, `contracts`, `tests`- y el mismo flujo, sin excepciones:
+
+    Runner -> Request -> Validation -> Service -> Domain -> Ports -> Response
+           -> Events -> Metrics
+
+Regla de creacion de objetos: nada se instancia directamente. Un motor nunca
+escribe `Broker(...)`; escribe `container.resolve(BrokerPort)`. Sin eso, un
+motor conoce a un adaptador concreto y la inversion de dependencias se pierde
+en el punto donde mas importa.
+
+SIMPLIFICACION respecto a los ocho bloques. Cuatro de ellos NO reciben paquete
+propio, porque su contenido cae dentro de fronteras que ya existen:
+
+  * Lifecycle           -> `LifecyclePort` en `shared`; el orden de arranque y
+                           parada lo ejecuta `container`. Un paquete solo para
+                           seis firmas de metodo no gana nada y anade una arista
+                           al grafo.
+  * Observability       -> `monitoring`, que ya tiene esa capacidad declarada.
+  * Persistence         -> `shared/ports.py`, que es donde viven los contratos
+                           por definicion. Un paquete aparte de "contratos de
+                           persistencia" competiria con `shared` por el mismo
+                           sujeto y violaria P5.
+  * Service Container   -> es el mismo `container` de 3.2. Inyeccion y
+                           ensamblado son dos vistas de una pieza; separarlas
+                           obligaria a que una dependiera de la otra sin motivo.
+
+Se crean solo dos paquetes nuevos: `events` (nivel core, el bus es un mecanismo
+puro sin I/O) y `container` (nivel application, porque para resolver un puerto
+hay que conocer al adaptador, y eso solo es legitimo en la raiz de composicion).
+"""
+
+consequences = """
+Se gana: los motores nacen sobre una plataforma terminada y todos comparten la
+misma anatomia, asi que conocer uno es conocer los diez. La regla de no
+instanciar directamente hace que la inversion de dependencias sea verificable y
+no una intencion.
+
+Se pierde: la Fase 3 se alarga y durante ese tiempo no hay nada que produzca un
+resultado de trading. Es la inversion deliberada de este ADR. La alternativa
+-empezar motores ya- adelanta el primer resultado y garantiza reescribirlos.
+
+Riesgo asumido: construir plataforma sin consumidores reales invita a
+sobre-disenar. Se mitiga con una regla operativa: cada bloque de la Fase 3 debe
+tener al menos un consumidor real en la propia Fase 3 antes de considerarse
+cerrado. El bus de eventos se prueba con los eventos de configuracion; el
+contenedor, resolviendo `ClockPort` y `ConfigProvider`. Si un bloque no tiene
+consumidor, es especulacion y se recorta.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_governance.py::test_every_package_is_governed"
+description = """
+Los dos paquetes nuevos, `events` y `container`, quedan declarados en
+`configs/architecture.toml` con capa, capacidad y dependencias, asi que el
+validador AST los gobierna desde el primer fichero.
+
+La ausencia de motores en la Fase 3 no se puede verificar mecanicamente sin
+convertirla en una regla arbitraria; se sostiene con el roadmap y con la revision
+de cada ADR posterior.
+"""
+
+[rollback]
+description = """
+Reordenar el roadmap y adelantar motores. No hay coste tecnico -no se ha escrito
+codigo de motor todavia-, solo la renuncia a la garantia de que todos compartan
+la misma plataforma.
+"""
+effort = "minutos"
+
+[[alternatives]]
+option = "Ocho paquetes, uno por bloque"
+rejected_because = """
+Cuatro de ellos competirian con paquetes existentes por el mismo sujeto:
+`persistence` con `shared`, `observability` con `monitoring`, `container` con
+`di`, y `lifecycle` seria un paquete de seis firmas. Multiplicar paquetes anade
+aristas al grafo sin anadir fronteras reales, y P5 prohibe dos sitios para el
+mismo concepto.
+"""
+
+[[alternatives]]
+option = "Empezar los motores en paralelo a la plataforma"
+rejected_because = """
+Cada motor inventaria su propia inyeccion, sus propios eventos y su propio ciclo
+de vida. Cuando la plataforma llegase habria que reescribirlos, y la experiencia
+del proyecto anterior dice que eso se hace a medias y quedan dos mecanismos
+conviviendo indefinidamente.
+"""

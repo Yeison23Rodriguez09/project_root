@@ -1,0 +1,390 @@
+[build-system]
+requires = [
+    "setuptools>=70",
+    "wheel"
+]
+build-backend = "setuptools.build_meta"
+
+###############################################################################
+# PROJECT
+###############################################################################
+
+[project]
+name = "quantplatform"
+version = "1.0.0"
+
+description = """
+Institutional Quantitative Trading Platform.
+Research, Architecture Search, Walk Forward Optimization,
+Model Validation, Portfolio Construction,
+Execution and Production Monitoring under a single architecture.
+"""
+
+readme = "README.md"
+
+requires-python = ">=3.11"
+
+license = {text = "Proprietary"}
+
+authors = [
+    {name = "QuantPlatform"}
+]
+
+keywords = [
+    "algorithmic-trading",
+    "quantitative-finance",
+    "research",
+    "walk-forward",
+    "optimization",
+    "portfolio",
+    "backtesting",
+    "metaheuristics",
+    "architecture-search",
+    "trading"
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Topic :: Office/Business :: Financial",
+    "Intended Audience :: Financial and Insurance Industry",
+]
+
+###############################################################################
+# DEPENDENCIAS BASE
+###############################################################################
+
+dependencies = [
+
+    ###########################################################################
+    # NUMERICAL CORE
+    ###########################################################################
+
+    "numpy>=2.0,<3",
+    "scipy>=1.14,<2",
+
+    ###########################################################################
+    # DATA INFRASTRUCTURE
+    ###########################################################################
+
+    "pandas>=2.2,<3",
+    "pyarrow>=18",
+
+    ###########################################################################
+    # CONFIGURATION
+    ###########################################################################
+
+    "pydantic>=2.10",
+    "pydantic-settings>=2.6",
+
+    ###########################################################################
+    # LOGGING
+    ###########################################################################
+
+    "structlog>=24",
+
+    ###########################################################################
+    # SERIALIZATION
+    ###########################################################################
+
+    "orjson>=3.10",
+
+    ###########################################################################
+    # CLI
+    ###########################################################################
+
+    "typer>=0.15",
+
+]
+
+###############################################################################
+# OPTIONAL DEPENDENCIES
+###############################################################################
+
+[project.optional-dependencies]
+
+###############################################################################
+# DEVELOPMENT
+###############################################################################
+
+dev = [
+
+    "pytest>=8.3",
+    "pytest-cov>=6",
+    "pytest-xdist>=3",
+
+    "mypy>=1.13",
+
+    "ruff>=0.8",
+
+    "pre-commit>=4",
+
+]
+
+###############################################################################
+# WINDOWS MT5
+###############################################################################
+
+mt5 = [
+
+    "MetaTrader5>=5.0.45"
+
+]
+
+###############################################################################
+# VISUALIZATION
+###############################################################################
+
+viz = [
+
+    "matplotlib>=3.10",
+
+    "plotly>=6",
+
+]
+
+###############################################################################
+# NOTEBOOKS
+###############################################################################
+
+research = [
+
+    "jupyterlab>=4",
+
+    "ipykernel>=6",
+
+]
+
+###############################################################################
+# CLI
+###############################################################################
+
+[project.scripts]
+
+qp = "app.interfaces.cli:main"
+
+###############################################################################
+# PACKAGE DISCOVERY
+###############################################################################
+
+[tool.setuptools.packages.find]
+
+# Arbol congelado en el tag `architecture-baseline`: TODO el codigo importable
+# cuelga de `app/`. No hay paquetes de primer nivel fuera de el.
+#
+#   app/core          primitivas, sin dependencias internas
+#   app/domain        entidades, objetos de valor y servicios de dominio
+#   app/shared        puertos (Protocol) entre dominio y mundo
+#   app/application   runners: orquestacion, sin reglas
+#   app/research      features, signals, strategies, backtest, data
+#   app/discovery     generacion y mutacion de arquitecturas
+#   app/optimization  busquedas
+#   app/walkforward   particionado y agregacion de folds
+#   app/validation    pruebas estadisticas
+#   app/execution     maquina de estados de ordenes y ruteo
+#   app/portfolio     riesgo y dimensionamiento por cartera
+#   app/broker        adaptadores de broker
+#   app/storage       zoo y repositorio de artefactos
+#   app/monitoring    metricas de runtime y auditoria
+#   app/analytics     calculo de metricas y reporting
+#   app/paper         motor sobre feed en tiempo real, sin ejecucion
+#   app/live          motor de ejecucion real
+#   app/interfaces    CLI y API
+#
+# `configs`, `data`, `artifacts`, `experiments`, `docs`, `scripts` y `tests` no
+# se listan: son directorios de datos, documentacion y pruebas, no paquetes.
+
+include = [
+
+    "app*",
+
+]
+
+###############################################################################
+# PYTEST
+###############################################################################
+
+[tool.pytest.ini_options]
+
+minversion = "8"
+
+testpaths = [
+
+    "tests"
+
+]
+
+addopts = """
+
+-q
+
+--strict-markers
+
+--strict-config
+
+"""
+
+markers = [
+
+    "unit",
+
+    "integration",
+
+    "contract",
+
+    "golden",
+
+    "research",
+
+    "walkforward",
+
+    "discovery",
+
+    "performance",
+
+    "slow",
+
+]
+
+###############################################################################
+# MYPY
+###############################################################################
+
+[tool.mypy]
+
+python_version = "3.11"
+
+strict = true
+
+warn_unreachable = true
+
+warn_unused_configs = true
+
+disallow_any_generics = true
+
+disallow_untyped_defs = true
+
+disallow_incomplete_defs = true
+
+check_untyped_defs = true
+
+plugins = [
+
+    "pydantic.mypy"
+
+]
+
+[[tool.mypy.overrides]]
+
+module = [
+
+    "MetaTrader5.*",
+
+    "structlog.*",
+
+]
+
+ignore_missing_imports = true
+
+###############################################################################
+# RUFF
+###############################################################################
+
+[tool.ruff]
+
+line-length = 100
+
+target-version = "py311"
+
+[tool.ruff.lint]
+
+select = [
+
+    "E",
+
+    "F",
+
+    "I",
+
+    "N",
+
+    "UP",
+
+    "B",
+
+    "A",
+
+    "C4",
+
+    "SIM",
+
+    "ARG",
+
+    "PTH",
+
+    "RUF",
+
+]
+
+ignore = [
+
+    "E501"
+
+]
+
+[tool.ruff.lint.per-file-ignores]
+
+"tests/*" = [
+
+    "ARG"
+
+]
+
+###############################################################################
+# ARCHITECTURAL PRINCIPLES
+###############################################################################
+
+[tool.quantplatform]
+
+architecture = "clean"
+
+dependency_rule = "outward_only"
+
+source_of_truth = "docs"
+
+configuration = "typed"
+
+logging = "structured"
+
+serialization = "orjson"
+
+numerical_backend = "numpy"
+
+data_backend = "pandas"
+
+research_engine = "deterministic"
+
+execution_engine = "event-driven"
+
+validation_engine = "walk-forward"
+
+optimization_engine = "architecture-search"
+
+risk_engine = "portfolio-aware"
+
+broker_layer = "adapter"
+
+storage = "repository"
+
+testing = "contract-first"
+
+reproducibility = true
+
+deterministic_random_seed = true
+
+fail_fast = true
+
+###############################################################################
+# END
+###############################################################################

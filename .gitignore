@@ -1,0 +1,41 @@
+# --- Artefactos generados por el sistema -----------------------------------
+# Se versiona la ESTRUCTURA (.gitkeep) y la CONFIGURACION, nunca el resultado.
+artifacts/**
+!artifacts/**/.gitkeep
+experiments/**
+!experiments/**/.gitkeep
+data/raw/**
+!data/raw/.gitkeep
+data/cache/**
+!data/cache/.gitkeep
+storage/zoo/**
+!storage/zoo/.gitkeep
+*.log
+*.parquet
+*.feather
+
+# --- Secretos ---------------------------------------------------------------
+configs/secrets.toml
+configs/local.toml
+.env
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+
+# --- Herramientas -----------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Editores ---------------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store

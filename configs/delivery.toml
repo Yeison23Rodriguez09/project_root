@@ -1,0 +1,294 @@
+###############################################################################
+# DELIVERY.TOML - Estado de construccion por capacidad
+#
+# Sujeto distinto de `architecture.toml`, y por eso fichero distinto (P5).
+# Aquel describe COMO ES el sistema y esta congelado en `architecture-baseline`.
+# Este describe QUE ESTA CONSTRUIDO y cambia en cada entrega.
+#
+# Mezclarlos seria el peor de los dos mundos: un contrato congelado que hay que
+# tocar cada semana deja de estar congelado, y un tracker de progreso dentro de
+# un fichero normativo invita a editar la norma para que encaje con el progreso.
+#
+# Las capacidades NO se declaran aqui. Se REFERENCIAN. La definicion vive en
+# `[capabilities]` de architecture.toml y `tests/test_governance.py` comprueba
+# que toda clave de `[state]` corresponda a una capacidad real.
+#
+# El progreso se mide por capacidad y no por carpetas: una carpeta se crea en un
+# segundo y no demuestra nada; una capacidad esta lista o no lo esta.
+###############################################################################
+
+[meta]
+version = 1
+phase = "3 - Platform Foundation"
+phase_rule = """
+La Fase 4 no se abre hasta que TODAS las capacidades de plataforma esten en
+estado `ready`. Sin indicadores, sin broker, sin estrategias, sin backtest.
+
+El motivo es el fallo concreto del proyecto anterior: estrategias, discovery,
+zoo, optimizacion, MT5, live, runtime, configuracion y arquitectura evolucionaron
+a la vez, y los acoplamientos que eso genero resultaron imposibles de deshacer.
+La estructura debe impedir que se repita, no confiar en que no se repita.
+"""
+
+###############################################################################
+# DEFINITION OF DONE
+#
+# Una capacidad pasa a `ready` cuando cumple TODOS los criterios. No hay
+# cumplimiento parcial: `in_progress` con doce de catorce sigue siendo
+# `in_progress`.
+#
+# Cada criterio dice como se comprueba. Un criterio que solo se verifica "a ojo"
+# acabaria dandose por bueno bajo presion de entrega.
+###############################################################################
+
+# Cada criterio tiene cuatro dimensiones, porque no todos pesan igual:
+#
+#   verified_by  como se comprueba. Un criterio que solo se verifica "a ojo"
+#                acaba dandose por bueno bajo presion de entrega.
+#   mandatory    si debe evaluarse siempre. `false` solo en criterios que no
+#                aplican a toda capacidad.
+#   blocking     si su incumplimiento IMPIDE el cierre, o solo advierte.
+#
+# La distincion `mandatory` / `blocking` es la que separa una recomendacion de
+# un requisito. Sin ella toda la lista acaba tratandose como orientativa, que es
+# como mueren las listas de este tipo.
+
+[[dod]]
+name = "code_implemented"
+verified_by = "revision humana"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "unit_tests"
+verified_by = "pytest -m unit"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "contract_tests"
+verified_by = "pytest -m contract"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "coverage_met"
+verified_by = "pytest --cov, umbrales en [dod_thresholds]"
+mandatory = true
+blocking = false
+rationale = """
+Advierte, no bloquea. Un umbral de cobertura convertido en barrera dura empuja a
+escribir tests de relleno que suben el numero sin detectar nada, y eso es peor
+que la cobertura baja porque produce confianza injustificada. Lo que si bloquea
+es `deterministic`, que es la propiedad que de verdad sostiene la plataforma.
+"""
+
+[[dod]]
+name = "adr_recorded"
+verified_by = "tests/test_governance.py::test_decision_matches_schema"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "constitution_cited"
+verified_by = "tests/test_governance.py::test_every_principle_is_invoked"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "contracts_updated"
+verified_by = "tests/test_architecture.py::test_every_package_is_governed"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "docs_regenerated"
+verified_by = "tests/test_governance.py::test_derived_docs_are_in_sync"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "no_todo_markers"
+verified_by = "grep de TODO y FIXME en CI"
+mandatory = true
+blocking = false
+rationale = """
+Advierte. Un TODO honesto es mejor que un hueco silencioso, y bloquear por ellos
+empuja a borrarlos en lugar de resolverlos. Lo que no se admite es un TODO sin
+nombre y sin fecha.
+"""
+
+[[dod]]
+name = "no_suppressions"
+verified_by = "grep de '# noqa' y '# type: ignore' sin justificacion adyacente"
+mandatory = true
+blocking = true
+rationale = """
+Bloquea. Silenciar una herramienta sin decir por que convierte una decision en
+una supersticion (P9), y la siguiente persona no sabra si puede retirarlo.
+"""
+
+[[dod]]
+name = "no_warnings"
+verified_by = "ruff + mypy --strict"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "deterministic"
+verified_by = "doble ejecucion con misma semilla, comparacion bit a bit"
+mandatory = true
+blocking = true
+rationale = """
+Bloquea sin excepcion, y bloquea tambien cualquier promocion posterior. Es P1: si
+esto falla, ningun resultado del sistema significa nada. Se comprueba ejecutando
+dos veces, no razonando sobre el codigo: el determinismo se rompe por caminos que
+nadie anticipa -un `set` iterado, una suma en paralelo-.
+"""
+
+[[dod]]
+name = "fingerprint_stable"
+verified_by = "misma entrada produce el mismo ConfigFingerprint"
+mandatory = true
+blocking = true
+
+[[dod]]
+name = "ci_green"
+verified_by = "pipeline completo"
+mandatory = true
+blocking = true
+
+[dod_thresholds]
+line_coverage = 0.90
+branch_coverage = 0.80
+
+[dod_thresholds.rationale]
+line_coverage = """
+90% y no 100%. Perseguir el ultimo 10% empuja a escribir tests de getters que no
+detectan nada. Lo que si es innegociable es la cobertura de las rutas de
+decision: precedencia, causalidad y promocion.
+"""
+
+###############################################################################
+# ESTADO OPERATIVO
+#
+# NO se declara aqui. Se CALCULA.
+#
+# "Que puede hacer hoy la plataforma" es una pregunta legitima y distinta de
+# "que hemos construido", pero su respuesta se deriva de este fichero mas el
+# resultado de `preflight`. Escribirla a mano en un `platform_state.toml`
+# crearia un quinto artefacto que puede mentir -y mentiria, porque nadie
+# actualiza un fichero de estado en el commit correcto-.
+#
+# Eso violaria P5 (una fuente de verdad) y P7 (todo derivado se regenera).
+#
+# La respuesta la produce `qp doctor --json`, y puede volcarse a
+# `reports/platform_state.toml` como artefacto derivado y regenerable.
+###############################################################################
+
+###############################################################################
+# ESTADO POR CAPACIDAD
+#
+# Estados: not_started | in_progress | ready | blocked
+#
+# `blocked` es un estado de primera clase y no un `in_progress` disimulado:
+# obliga a nombrar el bloqueo, y un bloqueo con nombre se resuelve mucho antes
+# que uno que solo vive en la cabeza de alguien.
+###############################################################################
+
+[state.Foundation]
+status = "blocked"
+phase = "3"
+blocked_by = """
+El arbol tiene dos jerarquias coexistiendo (`core/` y `app/core/`, `domain/` y
+`app/domain/`) y la consolidacion 2.5 no se ha ejecutado. Nada construido despues
+se ha compilado ni probado.
+
+Desbloqueo: python scripts/consolidate_architecture.py --apply
+             python scripts/generate_docs.py
+             pytest -m "contract or unit"
+             git tag architecture-baseline
+"""
+artifacts = [
+    "app/core/types.py",
+    "app/core/exceptions.py",
+    "app/core/math.py",
+    "app/core/timeutils.py",
+    "app/core/determinism.py",
+    "app/core/validation.py",
+    "app/core/registry/",
+    "app/core/config/",
+    "app/config/",
+    "app/domain/",
+    "app/shared/ports.py",
+]
+principles = ["P1", "P2", "P5", "P6", "P9"]
+decisions = ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0005"]
+done = []
+
+[state.Orchestration]
+status = "in_progress"
+phase = "3"
+artifacts = ["app/container/preflight.py", "app/application/"]
+principles = ["P4", "P10"]
+decisions = ["ADR-0006"]
+done = ["code_implemented"]
+missing = """
+Falta el contenedor propiamente dicho: resolucion de puertos, orden topologico
+de `LifecyclePort` y registro de suscriptores del bus. `preflight` existe pero
+todavia no lo invoca nadie.
+"""
+
+[state.Governance]
+status = "in_progress"
+phase = "3"
+artifacts = [
+    "CONSTITUTION.md",
+    "configs/architecture.toml",
+    "configs/conventions.toml",
+    "configs/runtime.toml",
+    "configs/plugins.toml",
+    "decisions/",
+    "tests/test_architecture.py",
+    "tests/test_governance.py",
+]
+principles = ["P3", "P4", "P5", "P7", "P8", "P9", "P10"]
+decisions = ["ADR-0001", "ADR-0004"]
+done = ["code_implemented", "contracts_updated", "constitution_cited", "adr_recorded"]
+missing = "Ningun test se ha ejecutado todavia. `docs_regenerated` falla a proposito."
+
+[state.Research]
+status = "not_started"
+phase = "4"
+
+[state.Discovery]
+status = "not_started"
+phase = "4"
+
+[state.Validation]
+status = "not_started"
+phase = "4"
+
+[state.Risk]
+status = "not_started"
+phase = "4"
+
+[state.Execution]
+status = "not_started"
+phase = "4"
+
+[state.Analytics]
+status = "not_started"
+phase = "4"
+
+[state.Monitoring]
+status = "not_started"
+phase = "3"
+
+[state.Interface]
+status = "in_progress"
+phase = "3"
+artifacts = ["main.py", "app/interfaces/"]
+principles = ["P4"]
+done = ["code_implemented"]
+missing = "Falta `qp doctor`, que es el consumidor real de preflight."

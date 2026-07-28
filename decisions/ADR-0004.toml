@@ -1,0 +1,114 @@
+id = "ADR-0004"
+title = "Existe una Constitucion que gobierna los contratos"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "domain", "shared", "application", "promotion", "interfaces"]
+
+context = """
+Con ADR-0001 la arquitectura paso a ser un modelo declarativo: los contratos de
+`configs/` gobiernan el codigo y los tests verifican los contratos. Quedaba una
+pregunta sin dueno: quien gobierna los contratos.
+
+El sintoma concreto es este. Un umbral se puede bajar, una regla se puede poner
+en `false` y una dependencia se puede anadir a `depends`, todo con un commit que
+pasa en verde porque los tests solo comprueban coherencia interna. Nada impide
+que la gobernanza se relaje gradualmente hasta no restringir nada, y cada paso
+parecera razonable en su momento.
+
+Falta un nivel que responda a una pregunta distinta de la que responden los
+contratos. Los contratos dicen como es el sistema hoy. Hacia falta algo que diga
+que no estamos dispuestos a sacrificar aunque el sistema cambie por completo.
+"""
+
+decision = """
+Se crea `CONSTITUTION.md` con diez principios irrenunciables, cada uno con
+identificador estable P1 a P10. Es prosa deliberadamente: no es otro TOML,
+porque su funcion no es ser consumido por una herramienta sino ser leido por
+quien tenga que decidir.
+
+La jerarquia queda:
+
+    CONSTITUTION.md   principios irrenunciables
+        gobierna
+    configs/*.toml    contratos declarativos
+        gobierna
+    app/              implementacion
+        verifica
+    tests/            comprobacion mecanica
+
+Los contratos CITAN los principios en tablas `principle`, nunca al reves. Esa
+direccion es la clave: hace la Constitucion verificable sin convertirla en
+configuracion. Dos tests la sostienen: todo principio debe estar invocado por al
+menos un contrato, y toda cita debe resolver.
+
+Un principio que nadie cita es retorica y se retira. Una cita sin destino es una
+regla huerfana que parece justificada y no lo esta.
+
+Modificar la Constitucion exige un ADR aceptado. Este es el que la establece.
+"""
+
+consequences = """
+Se gana: relajar una regla deja de ser un cambio local. Quitar
+`forbid_wall_clock_in_pure_layers` obliga a explicar como se sigue cumpliendo P6,
+y si no hay explicacion, el principio queda huerfano y el test falla. La presion
+de urgencia deja de poder erosionar la gobernanza en silencio.
+
+Se pierde: un nivel mas de indireccion. Anadir una regla ahora exige decidir a
+que principio sirve. Es friccion deliberada: una regla que no sirve a ningun
+principio probablemente no deba existir.
+
+Riesgo asumido: que los principios se vuelvan tan generales que cualquier regla
+pueda citarlos, y la comprobacion se degrade a un tramite. Se mitiga con P9, que
+exige que cada excepcion y cada umbral lleven justificacion propia; la cita al
+principio no sustituye al motivo concreto.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_governance.py::test_every_principle_is_invoked"
+description = """
+Se verifica en dos direcciones. `test_every_principle_is_invoked` recorre todos
+los contratos recogiendo las tablas `principle` y exige que los diez principios
+esten citados. `test_every_citation_resolves` exige lo contrario: que ninguna
+cita apunte a un principio inexistente.
+
+`test_derived_docs_are_in_sync` sostiene P7 por separado: regenera
+`docs/ARCHITECTURE.md` desde los contratos y falla si el fichero en disco difiere,
+lo que convierte cualquier edicion manual en un build roto.
+"""
+
+[rollback]
+description = """
+Borrar `CONSTITUTION.md` y retirar las tablas `principle` de los contratos.
+Los tests de coherencia entre contratos siguen funcionando sin ella: la
+Constitucion anade un nivel de gobierno, no una dependencia tecnica. El coste
+real de revertir no es tecnico, es perder el unico mecanismo que impide la
+erosion gradual de las reglas.
+"""
+effort = "minutos"
+
+[[alternatives]]
+option = "Un quinto TOML, constitution.toml"
+rejected_because = """
+Los principios no son configuracion: ninguna herramienta necesita leerlos para
+funcionar. Escribirlos como datos invitaria a tratarlos como parametros
+ajustables, que es exactamente lo contrario de lo que son. La prosa comunica que
+se leen y se discuten, no que se editan.
+"""
+
+[[alternatives]]
+option = "Dejar los principios como comentarios dentro de architecture.toml"
+rejected_because = """
+Los comentarios no tienen identificador y no se pueden citar. Sin cita no hay
+verificacion posible, y sin verificacion el principio vuelve a ser una intencion
+escrita.
+"""
+
+[[alternatives]]
+option = "No tener este nivel"
+rejected_because = """
+Es el estado del que se viene. Los contratos verifican su propia coherencia pero
+no su propia ambicion: un `architecture.toml` con todas las reglas en `false` es
+perfectamente coherente y no gobierna nada.
+"""

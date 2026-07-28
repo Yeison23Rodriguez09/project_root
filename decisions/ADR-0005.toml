@@ -1,0 +1,112 @@
+id = "ADR-0005"
+title = "La configuracion se parte en dos por pureza: resolucion en core, lectura en infraestructura"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "config", "application", "research", "interfaces"]
+
+context = """
+La configuracion es transversal: la necesitan los motores de calculo, los
+adaptadores, los runners y la CLI. Eso la convierte en la pieza con mas presion
+para violar la regla de dependencia, porque colocarla en un solo paquete obliga a
+elegir entre dos males.
+
+Si vive en un paquete puro (nivel bajo), ese paquete necesita leer ficheros y
+`os.environ`, y entonces `core` deja de ser hoja: cualquier test del dominio pasa
+a depender del sistema de ficheros.
+
+Si vive en infraestructura (nivel alto), los motores no pueden importar ni los
+tipos de configuracion, y acaban recibiendo diccionarios sin tipar o
+reimplementando sus propios modelos.
+
+Hay un tercer problema, mas silencioso y mas caro. Si un motor puede leer un
+fichero de configuracion, el resultado deja de depender solo de (datos,
+configuracion, semilla): pasa a depender del estado del disco en el momento de la
+ejecucion. Eso rompe P1 sin que nada lo delate, porque el motor sigue devolviendo
+un numero perfectamente plausible.
+"""
+
+decision = """
+Dos paquetes con responsabilidades disjuntas.
+
+`app/core/config/` - PURO, nivel 0. Esquema tipado, valores por defecto,
+resolvedor de precedencia, validador y registro de procedencia. Opera sobre
+diccionarios ya cargados en memoria y no sabe de donde vienen. Cualquier capa
+puede importarlo.
+
+`app/config/` - INFRAESTRUCTURA, nivel 4. Los proveedores que leen TOML, YAML,
+variables de entorno y argumentos de linea de comandos, mas el ensamblador que
+los ordena. Es el unico codigo del sistema autorizado a abrir un fichero de
+configuracion.
+
+Consecuencia de los niveles, ya verificada por la matriz: `research`,
+`portfolio`, `execution` y los demas motores (nivel 3) NO pueden importar
+`config` (nivel 4). Reciben un objeto ya resuelto y validado desde
+`application`. No es una convencion: el validador AST lo impide.
+
+Toda resolucion produce una traza de procedencia: por cada valor, de que fuente
+salio y con que prioridad. Sin ella, reproducir una corrida de hace tres meses
+exige adivinar que configuracion estaba activa.
+"""
+
+consequences = """
+Se gana: `core` sigue siendo hoja y testeable sin disco. Los motores no pueden
+leer configuracion aunque alguien lo intente. La precedencia es una funcion pura,
+asi que se prueba exhaustivamente sin tocar el sistema de ficheros. Y cada valor
+efectivo sabe explicar de donde vino.
+
+Se pierde: dos paquetes en lugar de uno, y un salto mental al buscar donde esta
+"la configuracion". Se compensa con la regla nemotecnica: si lee, esta en
+`config`; si decide, esta en `core.config`.
+
+Se acepta: la traza de procedencia cuesta memoria proporcional al numero de
+claves. Es despreciable frente al valor de poder responder "por que este umbral
+valia 0.7 en aquella corrida".
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_architecture.py::test_matrix_is_respected"
+description = """
+La matriz declara `config` en la capa `infrastructure`, y ningun paquete de
+`engine` la incluye en su `depends`. Cualquier import desde un motor hacia
+`app.config` falla el validador AST con fichero y linea.
+
+La pureza de `core.config` la sostiene ademas `test_third_party_confined`, que
+prohibe en `core` cualquier libreria de I/O.
+"""
+
+[rollback]
+description = """
+Fusionar ambos paquetes en `app/config` de nivel infraestructura y anadir
+`config` al `depends` de cada motor. Es una linea por motor en la matriz mas la
+reescritura de los imports. Barato tecnicamente, pero significa renunciar a la
+garantia de que un motor no puede leer del disco, que es el motivo de la
+decision.
+"""
+effort = "horas"
+
+[[alternatives]]
+option = "Un unico app/config en infraestructura"
+rejected_because = """
+Los motores no podrian importar los tipos de configuracion y acabarian recibiendo
+diccionarios sin tipar, o reimplementando sus propios modelos. Ademas obligaria a
+anadir `config` al `depends` de todos los motores, con lo que cualquiera podria
+leer un fichero durante un backtest.
+"""
+
+[[alternatives]]
+option = "Un unico app/core/config que tambien lea ficheros"
+rejected_because = """
+`core` dejaria de ser hoja y todo test del dominio pasaria a depender del sistema
+de ficheros. Es exactamente lo que P2 prohibe.
+"""
+
+[[alternatives]]
+option = "pydantic-settings resolviendo la precedencia"
+rejected_because = """
+Resuelve entorno y ficheros, pero no expone la procedencia de cada valor
+resuelto. Sin saber que fichero fijo cada umbral, una corrida antigua no se puede
+reconstruir. Se usa pydantic para el esquema y la validacion, que es donde
+aporta, y la precedencia se implementa aqui porque la traza es el requisito.
+"""

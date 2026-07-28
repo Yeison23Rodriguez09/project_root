@@ -1,0 +1,207 @@
+###############################################################################
+# CONVENTIONS.TOML - Gobernanza de convenciones de codigo
+#
+# Companero de `architecture.toml`. Aquel gobierna la FORMA del sistema (quien
+# depende de quien); este gobierna la forma del CODIGO (como se escribe cada
+# fichero).
+#
+# La regla vive una sola vez y varias herramientas la consumen:
+#
+#   * `tests/test_conventions.py`  la aplica sobre el AST y rompe el build
+#   * el reporte de consolidacion  informa de la deriva entre corridas
+#   * ruff y mypy                  cubren la parte que saben cubrir
+#
+# Donde ruff ya sabe hacerlo, ruff manda y aqui solo queda la constancia de por
+# que existe la regla. Donde ruff no llega -por ejemplo "las dataclasses del
+# dominio deben ser frozen"- la aplica el test. Duplicar la ejecucion seria
+# ruido; duplicar la DECLARACION seria peligroso, y es lo que este fichero
+# evita.
+#
+# Un umbral no es un capricho estetico. Cada uno tiene abajo la razon por la
+# que existe. Si una razon deja de aplicar, se cambia el numero en el diff, no
+# se silencia el test.
+###############################################################################
+
+[meta]
+version = 1
+applies_to = "app"
+
+###############################################################################
+# TAMANO
+###############################################################################
+
+[limits]
+max_module_lines = 700
+max_function_lines = 60
+max_public_classes = 10
+max_function_arguments = 8
+max_nesting_depth = 4
+
+[limits.rationale]
+max_module_lines = """
+Un modulo de mas de 700 lineas ya no cabe en la cabeza de nadie y casi siempre
+esconde dos responsabilidades. El limite obliga a nombrar la segunda.
+"""
+max_function_lines = """
+Una funcion de 60 lineas no es testeable por partes. En el dominio cuantitativo
+eso significa que un error de un signo dentro de un bloque de calculo solo se
+detecta por el resultado final, que es justo cuando ya no se sabe donde mirar.
+"""
+max_public_classes = """
+Diez clases publicas en un modulo es la senal de que el modulo es en realidad un
+paquete. Se aplica solo a las publicas: las privadas de apoyo no cuentan.
+"""
+max_function_arguments = """
+Mas de ocho argumentos indica que falta un objeto de valor. Ademas hace casi
+imposible detectar dos parametros intercambiados por error, que en una funcion
+de sizing significa arriesgar el capital equivocado.
+"""
+max_nesting_depth = """
+Cuatro niveles de anidamiento es donde deja de poder seguirse el flujo. Por
+encima, extraer.
+"""
+
+# Excepciones nominadas. Cada una lleva motivo: una excepcion sin motivo se
+# convierte en la primera de una lista que crece sola.
+[limits.exempt]
+"app/core/types.py" = { max_public_classes = 14, why = "enums primitivos; separarlos crearia imports circulares de conveniencia" }
+"app/core/exceptions.py" = { max_public_classes = 30, why = "una jerarquia de excepciones es una lista por naturaleza" }
+"app/shared/ports.py" = { max_public_classes = 24, why = "es el fichero de contratos: cada Protocol es una frontera del sistema y tenerlos juntos permite leer de un vistazo toda la superficie de acoplamiento con el exterior. Dividirlos por afinidad esconderia justo lo que interesa ver completo" }
+
+###############################################################################
+# ESTILO OBLIGATORIO
+###############################################################################
+
+[style]
+require_docstrings = true
+require_module_docstring = true
+require_explicit_exports = true
+require_future_annotations = true
+forbid_import_star = true
+forbid_print = true
+forbid_mutable_default_args = true
+forbid_bare_except = true
+forbid_todo_comments = false
+
+[style.rationale]
+require_explicit_exports = """
+`__all__` obligatorio en modulos con simbolos publicos. Sin el, todo lo
+importado en un modulo se convierte en parte accidental de su API y borrar un
+import se vuelve un cambio incompatible.
+"""
+require_future_annotations = """
+`from __future__ import annotations` en todos los ficheros. Hace las anotaciones
+perezosas, lo que permite tipar sin pagar imports en tiempo de ejecucion y
+elimina una clase entera de ciclos.
+"""
+forbid_print = """
+`print()` prohibido en `app/`. La observabilidad es structlog y eventos
+estructurados; un print no lleva `run_id` y no se puede agregar. Se permite en
+`scripts/`, que es interfaz de humano.
+"""
+forbid_bare_except = """
+`except:` y `except Exception:` sin re-lanzar ocultan bugs. La jerarquia de
+`app.core.exceptions` existe precisamente para capturar lo previsto y dejar
+pasar lo imprevisto.
+"""
+
+###############################################################################
+# INMUTABILIDAD Y DETERMINISMO
+#
+# Estas son las reglas que hacen que la plataforma sea reproducible. No son
+# preferencias de estilo.
+###############################################################################
+
+[determinism]
+require_frozen_dataclasses = true
+require_slots = true
+forbid_datetime_now = true
+forbid_random = true
+forbid_global_mutable_state = true
+
+# Capas donde se exige. Fuera de ellas un dataclass mutable es legitimo: un
+# acumulador de infraestructura no tiene por que ser inmutable.
+[determinism.scope]
+require_frozen_dataclasses = ["core", "domain", "shared"]
+require_slots = ["core", "domain"]
+forbid_datetime_now = ["core", "domain", "shared", "engine"]
+forbid_random = ["core", "domain", "shared", "engine"]
+forbid_global_mutable_state = ["core", "domain", "shared", "engine"]
+
+[determinism.rationale]
+require_frozen_dataclasses = """
+Un objeto de dominio mutable puede modificarse despues de validado, y entonces
+la garantia "si existe, es correcto" deja de sostenerse. Congelarlo convierte
+esa garantia en una propiedad del tipo.
+"""
+require_slots = """
+`slots=True` impide anadir atributos no declarados. Ademas de la memoria, lo
+que aporta es que una errata en el nombre de un campo falle en vez de crear un
+atributo nuevo en silencio.
+"""
+forbid_datetime_now = """
+El tiempo entra por `ClockPort`. Sin eso ningun backtest es reproducible y
+ninguna regla horaria es testeable sin esperar al reloj real.
+"""
+forbid_random = """
+Prohibido el modulo `random` y `numpy.random.seed`. La aleatoriedad se obtiene
+de `app.core.determinism.rng_for`, que deriva un generador aislado por
+consumidor. Un generador global hace que el resultado dependa del orden de
+ejecucion entre modulos.
+"""
+forbid_global_mutable_state = """
+Ninguna variable de modulo mutable (lista, dict o set en mayusculas que se
+modifique). El estado compartido entre corridas es la forma mas silenciosa de
+romper el determinismo: la segunda corrida ve lo que dejo la primera.
+"""
+
+# Excepcion estructural: los catalogos de componentes SON estado de modulo, por
+# construccion. Se pueblan una sola vez, en tiempo de importacion, y despues se
+# leen. La alternativa -pasar el registro por argumento hasta cada decorador-
+# haria el alta de un indicador tan incomoda que nadie declararia sus
+# parametros, que es lo que da valor al catalogo.
+[determinism.exempt]
+"app/core/registry/registry.py" = { forbid_global_mutable_state = true, why = "el catalogo es estado de modulo por diseno; se puebla en import y luego es de solo lectura" }
+"app/core/validation.py" = { require_frozen_dataclasses = true, why = "ValidationReport es un acumulador: se construye incrementalmente durante un recorrido y se congela por convencion al devolverse. Un informe inmutable obligaria a reconstruirlo por cada hallazgo" }
+"app/core/registry/loader.py" = { require_frozen_dataclasses = true, why = "Loader acumula el inventario de lo importado a lo largo de varias llamadas; su salida (LoadReport) si es inmutable" }
+
+###############################################################################
+# NOMENCLATURA
+###############################################################################
+
+[naming]
+modules = "snake_case"
+classes = "PascalCase"
+functions = "snake_case"
+constants = "UPPER_SNAKE_CASE"
+private_prefix = "_"
+forbid_abbreviations = [
+    "mgr", "tmp", "val", "obj", "res", "calc", "proc", "util", "helper", "data2",
+]
+
+[naming.rationale]
+forbid_abbreviations = """
+Un nombre debe comunicar intencion. `calc_val` no dice si calcula un precio, un
+tamano o una metrica, y en una plataforma donde esas tres cosas conviven en la
+misma funcion, la ambiguedad se paga.
+"""
+
+###############################################################################
+# DOCUMENTACION
+###############################################################################
+
+[documentation]
+require_package_purpose = true
+require_public_api_docstrings = true
+require_rationale_for_thresholds = true
+
+[documentation.rationale]
+require_package_purpose = """
+Todo `__init__.py` con docstring. Un paquete sin proposito declarado es un
+paquete que nadie sabe si puede borrar.
+"""
+require_rationale_for_thresholds = """
+Toda constante de negocio (umbral, ventana, limite) lleva comentario con su
+motivo. Un numero sin justificacion es indistinguible de un numero inventado, y
+seis meses despues nadie se atreve a cambiarlo.
+"""

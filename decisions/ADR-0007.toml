@@ -1,0 +1,176 @@
+id = "ADR-0007"
+title = "La arquitectura se congela por stress implementation, con registro de hallazgos"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "domain", "shared", "container", "application", "interfaces"]
+
+context = """
+El criterio de avance ha sido hasta ahora "que falta por construir". Ese criterio
+no puede cerrar una arquitectura, porque siempre falta algo y porque nada obliga
+a demostrar que lo construido es SUFICIENTE.
+
+El criterio correcto es otro: puede construirse un sistema real de extremo a
+extremo sin tocar la arquitectura. Si la respuesta es si, la arquitectura se
+sostiene. Si es no, no estaba congelada.
+
+Hay un problema con la version binaria de esa regla -"si hay que cambiar algo, la
+arquitectura falla"-. Con un criterio binario el primer hallazgo incomodo no
+desaparece: se esconde, o se reclasifica como "mejora interna" para no admitir el
+fallo. El incentivo apunta exactamente al lado contrario del que se busca.
+
+Ninguna arquitectura no trivial sobrevive intacta a su primera implementacion
+completa. Pretender lo contrario no produce mejores arquitecturas; produce
+informes menos honestos.
+"""
+
+decision = """
+Se introduce la Fase 4.5 - Architecture Freeze, cuyo unico entregable es un
+sistema completo construido sobre la arquitectura existente:
+
+    MT5 -> Broker Adapter -> Bars -> Features -> Signals -> Strategy
+        -> Risk -> Portfolio -> Execution -> Trade Repository
+        -> Monitoring -> Analytics
+
+Durante la fase se permiten implementaciones, correcciones y mejoras internas.
+NO se permiten capas nuevas, paquetes nuevos, traslados de modulo, cambios en la
+Constitucion, en la matriz ni en los contratos.
+
+REGISTRO DE HALLAZGOS en lugar de veredicto binario. Toda necesidad de cambiar la
+arquitectura se anota en `reports/freeze_findings.md` con:
+
+    que se intentaba implementar
+    que pieza falto
+    severidad
+    si se resolvio dentro de la arquitectura o exigio cambiarla
+
+Severidades:
+
+    cosmetic     un nombre confuso, una firma incomoda. No cuenta.
+    contained    se resolvio dentro de la arquitectura, con esfuerzo.
+    structural   exigio un puerto, un paquete o una capa nuevos.
+    fundamental  invalida una decision registrada en un ADR.
+
+Criterio de congelacion: CERO hallazgos `fundamental` y CERO `structural`. Los
+`contained` se permiten y se cuentan: son la medida real de cuanta friccion
+impone la arquitectura, y un numero alto es una senal aunque ninguno bloquee.
+
+Cada hallazgo `structural` obliga a un ADR antes de aplicar el cambio, y reinicia
+el recorrido completo del stress test. Reiniciar es caro a proposito: es lo que
+hace que la primera pasada se tome en serio.
+
+ALCANCE: el recorrido termina en PAPER, no en live.
+"""
+
+consequences = """
+Se gana: la arquitectura deja de estar validada por argumento y pasa a estarlo
+por construccion. El registro de hallazgos convierte "la arquitectura aguanta" en
+un dato con perfil de severidades, comparable entre iteraciones.
+
+Se pierde: la fase es larga y no produce ningun resultado de trading utilizable,
+porque su producto es una demostracion, no un bot en produccion.
+
+Se acepta: el sistema construido en 4.5 probablemente se descarte. Es un stress
+test, no un entregable. Tratarlo como entregable seria el error clasico: el
+prototipo que nadie tuvo tiempo de rehacer y acabo en produccion.
+"""
+
+[validation]
+kind = "manual"
+reference = "reports/freeze_findings.md"
+description = """
+El recorrido completo se ejecuta y se documenta. La verificacion automatica cubre
+la parte mecanica -`qp doctor` en verde, contratos y tests en verde, contenedor
+capaz de construir la aplicacion entera- pero el juicio sobre si un hallazgo es
+`contained` o `structural` es humano y debe serlo: automatizarlo invitaria a
+reclasificar para pasar la puerta.
+"""
+
+[rollback]
+description = """
+Volver al criterio anterior de "que falta por construir". No hay coste tecnico.
+El coste es renunciar a la unica prueba que demuestra que la arquitectura basta,
+y descubrirlo mas tarde con mucho mas codigo encima.
+"""
+effort = "minutos"
+
+###############################################################################
+# PRECONDICIONES
+#
+# Correccion de hecho: la plataforma NO esta construida. Lo que existe es
+# gobernanza y codigo sin verificar. Abrir 4.5 sobre esta base la haria fallar
+# por el motivo equivocado -por piezas ausentes, no por defectos de diseno- y el
+# registro de hallazgos quedaria contaminado.
+###############################################################################
+
+[preconditions]
+must_exist_before_starting = [
+    "Fase 2.5 ejecutada: un solo arbol, sin duplicados, tag architecture-baseline",
+    "Al menos una ejecucion real de la suite: hoy no se ha lanzado ninguna",
+    "Contenedor operativo: resolucion de puertos y orden de LifecyclePort",
+    "Bus de eventos: el paquete `events` no tiene ni un fichero",
+    "Loader de plugins invocado por alguien",
+    "qp doctor devolviendo Platform READY",
+]
+rationale = """
+Sin estas seis, 4.5 mide la ausencia de implementacion en lugar de medir la
+calidad del diseno, que es lo unico que la fase existe para medir.
+"""
+
+###############################################################################
+# ALCANCE
+###############################################################################
+
+[scope]
+included = [
+    "backtest completo y determinista",
+    "discovery sobre un espacio pequeno",
+    "walk-forward con folds reales",
+    "promocion con veredicto y evidencia",
+    "paper trading sobre feed real",
+    "monitoring y analytics del recorrido",
+]
+excluded = ["live trading"]
+
+[scope.rationale]
+live_excluded = """
+Ejecutar live NO puede ser criterio de aceptacion de una congelacion
+arquitectonica: seria usar dinero real como prueba de diseno.
+
+Ademas contradice P8 y el contrato de runtime, que exigen `require_promoted_state`
+y `require_approval_record` para enviar ordenes. Una estrategia construida para
+demostrar que la arquitectura aguanta no ha pasado validacion cientifica y no
+puede estar promovida. Si se la promoviera para poder ejecutar el stress test, la
+puerta de promocion quedaria demostrablemente rota, que es lo contrario de
+demostrar que la arquitectura funciona.
+
+Paper ejercita el mismo recorrido completo -mismo runner, mismos puertos, mismo
+ciclo de vida- y solo cambia que `BrokerPort` lo implementa un simulador. Si el
+recorrido funciona en paper, funciona en live; esa equivalencia es precisamente
+lo que la arquitectura promete y lo que el stress test verifica.
+
+Live se habilita despues, con aprobacion humana registrada.
+"""
+
+[[alternatives]]
+option = "Criterio binario: cero cambios o la arquitectura falla"
+rejected_because = """
+Incentiva esconder o reclasificar hallazgos. Ninguna arquitectura no trivial
+sobrevive intacta a su primera implementacion completa, y exigirlo produce
+informes menos honestos, no mejores disenos.
+"""
+
+[[alternatives]]
+option = "Incluir live trading en el recorrido"
+rejected_because = """
+Dinero real como prueba de diseno, y exige romper la puerta de promocion para
+poder ejecutarlo. Paper cubre el mismo recorrido sin ninguna de las dos cosas.
+"""
+
+[[alternatives]]
+option = "Congelar sin stress test, por revision de diseno"
+rejected_because = """
+Es lo que se ha hecho hasta ahora y es exactamente lo que no puede demostrar
+suficiencia. Una revision detecta lo que esta mal; solo una implementacion
+detecta lo que falta.
+"""

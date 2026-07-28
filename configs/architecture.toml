@@ -1,0 +1,616 @@
+###############################################################################
+# ARCHITECTURE.TOML - Contrato estructural y de comportamiento
+#
+# La arquitectura NO es el codigo. Es este fichero. `app/` es su reflejo.
+#
+# Gobierna, desde un solo sitio:
+#   * el validador AST            tests/test_architecture.py
+#   * la gobernanza declarativa   tests/test_governance.py
+#   * el grafo y los reportes     scripts/consolidate_architecture.py
+#   * la documentacion derivada   docs/ARCHITECTURE.md
+#   * la puerta de CI
+#
+# Contiene DOS contratos porque ambos hablan del mismo sujeto -el paquete-
+# desde dos angulos:
+#
+#   I.  Structural   quien es cada paquete y de quien puede depender
+#   II. Behavioral   como debe comportarse el sistema
+#
+# No existe un `dependency_rules.toml` aparte a proposito: las dependencias ya
+# son `depends`. Un segundo fichero que describa lo mismo acabaria discrepando,
+# y entonces el test comprobaria uno mientras la documentacion promete el otro.
+#
+# Los nombres de paquete van SIN el prefijo `app.`. Las herramientas lo anaden.
+# Asi el fichero se lee como un mapa del sistema, no como rutas de import.
+#
+# Congelado en el tag `architecture-baseline`.
+###############################################################################
+
+[meta]
+version = 3
+frozen_at = "architecture-baseline"
+root_package = "app"
+# Cuando el codigo y este fichero discrepan, este fichero tiene razon.
+principle = "P10"
+
+###############################################################################
+# ARTEFACTOS DERIVADOS
+#
+# Vistas, no fuentes. Se regeneran en cada build desde los contratos. Una
+# edicion manual desaparece en la siguiente generacion, y `test_governance.py`
+# falla si el fichero en disco no coincide con lo que produciria el generador.
+###############################################################################
+
+[derived]
+principle = "P7"
+generator = "scripts/generate_docs.py"
+artifacts = [
+    "docs/ARCHITECTURE.md",
+    "reports/architecture_report.md",
+    "reports/dependency_graph.svg",
+]
+rationale = """
+Un artefacto mantenido a mano se desincroniza, y cuando describe la arquitectura
+se convierte en una segunda fuente de verdad: viola P5 ademas de P7. Por eso
+`docs/ARCHITECTURE.md` no se edita nunca mas.
+"""
+
+###############################################################################
+# CAPACIDADES
+#
+# La unidad de conversacion del sistema. Se habla de capacidades, no de
+# carpetas: una capacidad sobrevive a cualquier reorganizacion de directorios,
+# y esta expresada en el lenguaje del negocio en lugar del de la
+# implementacion.
+#
+# Cada paquete declara exactamente una. Si un paquete necesitara dos, es que son
+# dos paquetes.
+###############################################################################
+
+[capabilities.Foundation]
+purpose = "Primitivas, tipos y determinismo. No es una capacidad de negocio; es el sustrato."
+owner = "Platform"
+
+[capabilities.Research]
+purpose = "Convertir precio en features y features en senales, de forma pura y causal."
+owner = "Research"
+
+[capabilities.Discovery]
+purpose = "Explorar el espacio de arquitecturas y proponer candidatos."
+owner = "Research"
+
+[capabilities.Validation]
+purpose = "Decidir si un resultado es evidencia o es ruido."
+owner = "Research"
+
+[capabilities.Risk]
+purpose = "Traducir una decision direccional en exposicion admisible."
+owner = "Trading"
+
+[capabilities.Execution]
+purpose = "Convertir intencion en orden y seguir su estado."
+owner = "Trading"
+
+[capabilities.Analytics]
+purpose = "Medir, atribuir y reportar."
+owner = "Research"
+
+[capabilities.Monitoring]
+purpose = "Saber que esta pasando y que dejo de pasar."
+owner = "Platform"
+
+[capabilities.Governance]
+purpose = "Gobernar el ciclo de vida del zoo: elegibilidad, aprobacion, despliegue y archivo."
+owner = "Trading"
+
+[capabilities.Orchestration]
+purpose = "Componer las capacidades en casos de uso. No contiene reglas."
+owner = "Platform"
+
+[capabilities.Interface]
+purpose = "Exponer los casos de uso a un humano o a otro sistema."
+owner = "Platform"
+
+# Rango de cada capa. Determina el orden vertical del grafo y permite razonar
+# por capa sin enumerar paquetes.
+[layer_order]
+core = 0
+domain = 1
+shared = 2
+engine = 3
+infrastructure = 4
+application = 5
+operation = 6
+interface = 7
+
+###############################################################################
+# I. CONTRATO ESTRUCTURAL
+#
+# `depends` es la lista COMPLETA y CERRADA de paquetes de los que ese paquete
+# puede importar. Todo lo no listado esta prohibido. Un paquete siempre puede
+# importar de si mismo.
+#
+# `visibility`:
+#   public    cualquier paquete permitido puede importarlo
+#   internal  solo paquetes de su misma capacidad
+###############################################################################
+
+[packages.core]
+layer = "core"
+capability = "Foundation"
+visibility = "public"
+depends = []
+purpose = "Primitivas. Raiz del grafo."
+rationale = """
+No importa nada del proyecto. Es lo que hace la regla verificable y no una
+aspiracion: si core fuera hoja solo 'casi siempre', cualquier ciclo podria
+esconderse detras de esa excepcion.
+"""
+
+[packages.domain]
+layer = "domain"
+capability = "Foundation"
+visibility = "public"
+depends = ["core"]
+purpose = "Entidades, objetos de valor y servicios de dominio."
+rationale = """
+No conoce infraestructura ni motores. Un objeto de dominio debe poder
+construirse y validarse en un test sin disco, sin red y sin reloj.
+"""
+
+[packages.events]
+layer = "core"
+capability = "Foundation"
+visibility = "public"
+depends = ["core"]
+purpose = "Bus de eventos en proceso: evento, publicador, suscriptor, dispatcher y middleware."
+rationale = """
+En capa `core` porque el bus es un mecanismo puro: encaminar un evento no toca
+disco ni red. Los suscriptores que si hacen I/O viven en `monitoring` y se
+registran desde `container`.
+
+Situarlo aqui es lo que permite el desacoplamiento que se busca. Ningun motor
+conoce al siguiente: `research` emite `FeaturesCalculated` y no sabe si alguien
+escucha. Si el bus estuviera en infraestructura, un motor de nivel 3 no podria
+emitir sin violar la matriz, y acabariamos pasando callbacks a mano.
+
+El bus NO puede depender de `domain`: si conociera `Trade` u `Order`, cada evento
+nuevo del dominio obligaria a tocar el bus. Los eventos transportan carga
+generica y quien la interpreta es el suscriptor.
+"""
+
+[packages.container]
+layer = "application"
+capability = "Orchestration"
+visibility = "public"
+depends = [
+    "core", "domain", "shared", "events", "config",
+    "research", "portfolio", "execution", "analytics",
+    "walkforward", "validation", "optimization", "discovery", "promotion",
+    "broker", "storage", "monitoring",
+]
+purpose = "Inyeccion de dependencias, raiz de composicion y orden de ciclo de vida."
+rationale = """
+Capa `application` porque para resolver un puerto hay que conocer al adaptador
+concreto, y eso solo es legitimo en la raiz de composicion. Es el unico paquete
+del sistema autorizado a saber que `BrokerPort` lo implementa MT5.
+
+Regla que hace cumplir: nada se instancia directamente. Un motor nunca escribe
+`Broker(...)`; escribe `container.resolve(BrokerPort)`. Sin esto la inversion de
+dependencias se pierde justo donde importa, porque el motor pasa a conocer una
+clase concreta y deja de ser sustituible en un test.
+
+Absorbe tambien el orden de arranque y parada. `LifecyclePort` declara las seis
+fases -initialize, load, warmup, start, stop, dispose- y el contenedor las
+ejecuta en orden topologico de dependencias: un componente no arranca antes de
+aquello de lo que depende, y se para en orden inverso. Un paquete `lifecycle`
+separado solo contendria seis firmas de metodo y anadiria una arista al grafo sin
+crear ninguna frontera real (ADR-0006).
+"""
+
+[packages.config]
+layer = "infrastructure"
+capability = "Foundation"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Proveedores de configuracion: TOML, YAML, entorno y CLI. Unico lugar que lee ficheros de config."
+rationale = """
+La configuracion esta partida en dos por pureza, no por capricho (ADR-0005).
+
+`core.config` contiene el esquema tipado, los valores por defecto, el resolvedor
+de precedencia y el validador. Todo puro: opera sobre diccionarios ya cargados y
+no sabe de donde vienen. Los motores pueden importarlo.
+
+`config` -este paquete- contiene los proveedores que leen disco, entorno y
+argumentos. Es infraestructura, nivel 4, asi que NINGUN motor puede importarlo:
+un motor de nivel 3 que pudiera leer un fichero de configuracion introduciria una
+entrada no declarada y el resultado dejaria de depender solo de (datos, config,
+semilla). Los motores reciben configuracion ya resuelta y tipada.
+"""
+
+[packages.shared]
+layer = "shared"
+capability = "Foundation"
+visibility = "public"
+depends = ["core", "domain"]
+purpose = "Puertos (Protocol) entre el dominio y el mundo."
+rationale = """
+Los puertos hablan el vocabulario del dominio, por eso lo importan. No importan
+ningun adaptador: el sentido del puerto es que el adaptador dependa de el.
+"""
+
+# -- Research -----------------------------------------------------------------
+
+[packages.research]
+layer = "engine"
+capability = "Research"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "data, features, signals, strategies, backtest."
+rationale = """
+Research NO conoce broker. Si el calculo de un indicador pudiera consultar al
+broker, el backtest dejaria de ser reproducible y la suite no podria ejecutarse
+sin conexion.
+"""
+
+[packages.analytics]
+layer = "engine"
+capability = "Analytics"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Calculo de metricas y reporting."
+
+# -- Risk y Execution ---------------------------------------------------------
+
+[packages.portfolio]
+layer = "engine"
+capability = "Risk"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Riesgo y dimensionamiento con vision de cartera."
+
+[packages.execution]
+layer = "engine"
+capability = "Execution"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Maquina de estados de ordenes, validacion y ruteo."
+rationale = """
+Execution NO conoce walkforward. La ejecucion es un mecanismo, la validacion es
+una metodologia. Si el mecanismo conociera la metodologia, no se podria usar el
+mismo motor en vivo.
+"""
+
+# -- Validation ---------------------------------------------------------------
+
+[packages.walkforward]
+layer = "engine"
+capability = "Validation"
+visibility = "public"
+depends = ["core", "domain", "shared", "research", "analytics"]
+purpose = "Particionado en folds, evaluacion y agregacion."
+
+[packages.validation]
+layer = "engine"
+capability = "Validation"
+visibility = "public"
+depends = ["core", "domain", "shared", "research", "analytics"]
+purpose = "Permutacion, Monte Carlo, stress, reality check."
+
+# -- Discovery ----------------------------------------------------------------
+
+[packages.optimization]
+layer = "engine"
+capability = "Discovery"
+visibility = "public"
+depends = ["core", "domain", "shared", "research", "analytics", "walkforward"]
+purpose = "Grid, random, guiada, evolutiva."
+
+[packages.discovery]
+layer = "engine"
+capability = "Discovery"
+visibility = "public"
+depends = ["core", "domain", "shared", "research", "analytics", "walkforward", "optimization"]
+purpose = "Coordina la busqueda de arquitecturas."
+rationale = """
+Discovery no descubre: COORDINA. Los descubrimientos los hacen motores
+especializados -generacion, evolucion, evaluacion, seleccion- y discovery
+decide en que orden intervienen y con que presupuesto.
+
+Discovery tampoco promociona. La promocion es gobierno del zoo, no parte del
+proceso evolutivo, y vive en `promotion`. Mezclarlas haria que el buscador
+tuviera autoridad para poner algo en produccion, que es exactamente la
+separacion que un proceso cientifico necesita mantener.
+"""
+
+# -- Governance ---------------------------------------------------------------
+
+[packages.promotion]
+layer = "engine"
+capability = "Governance"
+visibility = "public"
+depends = ["core", "domain", "shared", "analytics", "walkforward", "validation"]
+purpose = "Elegibilidad, ranking, aprobacion, despliegue y archivo."
+rationale = """
+Subsistema propio, no una carpeta dentro de discovery. Consume la evidencia
+(walkforward, validation, analytics) pero NO depende de discovery: una estrategia
+escrita a mano debe poder recorrer el mismo camino de promocion que una generada
+por la busqueda.
+
+No depende de research ni de execution: no calcula y no ejecuta. Decide.
+
+Tampoco depende de `storage`, aunque el resultado de una promocion acabe en el
+zoo. `storage` es infraestructura (nivel 4) y promotion es motor (nivel 3):
+declararlo haria que la dependencia subiera de capa, y eso es precisamente lo
+que P2 prohibe. Promotion escribe a traves de `StrategyRepositoryPort`, declarado
+en `shared`, y el runner de `application` inyecta el adaptador concreto.
+
+La consecuencia practica es la correcta: promotion emite un veredicto y no sabe
+si se persiste en Parquet, en DuckDB o en memoria durante un test.
+"""
+
+# -- Infraestructura ----------------------------------------------------------
+
+[packages.broker]
+layer = "infrastructure"
+capability = "Execution"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Adaptadores de broker."
+rationale = """
+Un adaptador implementa `BrokerPort` (declarado en shared) y habla el
+vocabulario del dominio. La maquina de estados de la orden vive en
+`domain.entities.order`, no en `execution`, asi que no necesita execution. Si
+lo importara, cambiar la orquestacion obligaria a revisar todos los adaptadores.
+"""
+
+[packages.storage]
+layer = "infrastructure"
+capability = "Governance"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Zoo canonico, zoo espejo y repositorio de artefactos."
+rationale = """
+El zoo no es un JSON de parametros: es un catalogo con historia. Cada entrada
+guarda metadatos, metricas, estado de ciclo de vida, historial de aprobaciones,
+hash de reproducibilidad, hash del dataset y linaje de investigacion. Sin esa
+historia, una estrategia en produccion es un numero sin procedencia.
+"""
+
+[packages.monitoring]
+layer = "infrastructure"
+capability = "Monitoring"
+visibility = "public"
+depends = ["core", "domain", "shared"]
+purpose = "Metricas de runtime, auditoria y health checks."
+
+# -- Orquestacion y operacion -------------------------------------------------
+
+[packages.application]
+layer = "application"
+capability = "Orchestration"
+visibility = "public"
+depends = [
+    "core", "domain", "shared",
+    "research", "portfolio", "execution", "analytics",
+    "walkforward", "validation", "optimization", "discovery", "promotion",
+    "broker", "storage", "monitoring",
+]
+purpose = "Casos de uso. Un paquete por caso: command, request, response, service, runner."
+rationale = """
+La unica capa que ve todo, porque su trabajo es exactamente componer. No
+contiene reglas. Si un runner empieza a hacer aritmetica de negocio, esa
+aritmetica pertenece a `domain.services`.
+"""
+
+[packages.paper]
+layer = "operation"
+capability = "Execution"
+visibility = "public"
+depends = [
+    "core", "domain", "shared",
+    "research", "portfolio", "execution",
+    "broker", "storage", "monitoring", "application",
+]
+purpose = "Motor sobre feed en tiempo real, sin ejecucion real."
+
+[packages.live]
+layer = "operation"
+capability = "Execution"
+visibility = "public"
+depends = [
+    "core", "domain", "shared",
+    "research", "portfolio", "execution",
+    "broker", "storage", "monitoring", "application",
+]
+purpose = "Motor de ejecucion real."
+
+[packages.interfaces]
+layer = "interface"
+capability = "Interface"
+visibility = "public"
+depends = ["core", "application", "container"]
+purpose = "CLI y API."
+rationale = """
+`core` para que la CLI convierta "M15" en `Timeframe.M15` antes de invocar el
+caso de uso; sin eso pasaria cadenas crudas y la validacion se desplazaria hacia
+dentro.
+
+`container` porque el punto de entrada es quien construye la raiz de composicion:
+lee la configuracion, arma el contenedor y le pide el runner. Es el unico lugar
+donde eso puede ocurrir, y es la razon de que `main.py` no contenga logica.
+
+Se mantiene la prohibicion importante: la interfaz NO ve motores. No puede llamar
+a discovery, research ni execution directamente. Solo casos de uso.
+"""
+
+###############################################################################
+# II. CONTRATO DE COMPORTAMIENTO
+#
+# Como debe comportarse el sistema. No es codigo: es un contrato. Cada
+# afirmacion de aqui tiene un test que la sostiene o no vale nada.
+###############################################################################
+
+[behavior]
+deterministic = true
+reproducible = true
+immutable_domain = true
+no_wall_clock = true
+no_hidden_randomness = true
+no_global_mutable_state = true
+causal_features_only = true
+costs_always_applied = true
+auditable_rejections = true
+
+# Principio de CONSTITUTION.md que sostiene cada afirmacion. La cita va del
+# contrato hacia la constitucion, nunca al reves: los TOML gobiernan el sistema,
+# pero la constitucion gobierna los TOML. `tests/test_governance.py` verifica
+# que toda cita resuelva y que ningun principio quede sin invocar.
+[behavior.principle]
+deterministic = "P1"
+reproducible = "P1"
+immutable_domain = "P6"
+no_wall_clock = "P6"
+no_hidden_randomness = "P6"
+no_global_mutable_state = "P6"
+causal_features_only = "P1"
+costs_always_applied = "P9"
+auditable_rejections = "P3"
+
+[behavior.rationale]
+immutable_domain = """
+Todo objeto de dominio es inmutable y valida sus invariantes al construirse. Asi
+"si existe, es correcto" pasa a ser una propiedad del tipo y no una esperanza.
+Verificado en tests/test_conventions.py.
+"""
+no_wall_clock = """
+El tiempo entra por `ClockPort`. Sin eso ningun backtest es reproducible y
+ninguna regla horaria es testeable sin esperar al reloj real.
+"""
+no_hidden_randomness = """
+La aleatoriedad se obtiene de `core.determinism.rng_for`, que deriva un generador
+aislado por consumidor. Un generador global hace que el resultado dependa del
+orden de ejecucion entre modulos.
+"""
+no_global_mutable_state = """
+Ninguna variable de modulo mutable sin marcar `Final`. El estado compartido entre
+corridas es la forma mas silenciosa de romper el determinismo: la segunda corrida
+ve lo que dejo la primera.
+"""
+deterministic = """
+Mismas entradas, misma configuracion y misma semilla producen el mismo
+resultado, bit a bit. Sin esto no se puede afirmar que un cambio mejoro nada.
+"""
+reproducible = """
+Toda corrida guarda semilla, hash de configuracion, hash de datos y version de
+codigo. Una corrida que no se puede repetir no es un experimento.
+"""
+causal_features_only = """
+`feature[i]` depende solo de `bars[0..i]`. Una decision tomada con la barra `i`
+se ejecuta como pronto en la apertura de `i+1`. Verificado en
+tests/test_no_lookahead.py perturbando el futuro.
+"""
+costs_always_applied = """
+No existe una metrica bruta en `PerformanceMetrics`. Es deliberado: hace
+imposible presentar por descuido un resultado sin costes.
+"""
+auditable_rejections = """
+Todo descarte lleva `ReasonCode`. Un cero en un array de senal no distingue
+"no habia setup" de "fuera de sesion", y esas dos cosas exigen decisiones
+distintas del investigador.
+"""
+
+###############################################################################
+# REGLAS APLICABLES
+#
+# Interruptores; el detalle que un booleano no expresa, en las subtablas.
+###############################################################################
+
+[rules]
+allow_relative_imports = false
+require_docstrings = true
+forbid_cycles = true
+forbid_third_party_in_core = true
+forbid_wall_clock_in_pure_layers = true
+forbid_legacy_import_paths = true
+forbid_duplicate_modules = true
+require_package_coverage = true
+require_capability_declaration = true
+
+[rules.principle]
+allow_relative_imports = "P5"
+require_docstrings = "P9"
+forbid_cycles = "P2"
+forbid_third_party_in_core = "P2"
+forbid_wall_clock_in_pure_layers = "P6"
+forbid_legacy_import_paths = "P5"
+forbid_duplicate_modules = "P5"
+require_package_coverage = "P4"
+require_capability_declaration = "P4"
+
+[rules.relative_imports]
+rationale = """
+Un import relativo cambia de significado al mover el fichero y permite que el
+mismo modulo se cargue dos veces bajo nombres distintos, con dos copias del
+estado. En un sistema que exige determinismo eso es inaceptable.
+"""
+
+[rules.cycles]
+rationale = """
+Un ciclo A -> B -> C -> A rompe el orden de inicializacion e impide razonar
+sobre que existe cuando. Se detecta a nivel de modulo: ahi aparece primero.
+"""
+
+[rules.wall_clock]
+forbidden_in_layers = ["core", "domain", "shared", "engine"]
+
+[rules.third_party]
+core = ["pandas", "pydantic", "MetaTrader5", "requests", "httpx", "yaml"]
+domain = ["pandas", "pydantic", "MetaTrader5", "requests", "httpx", "yaml"]
+shared = ["pandas", "pydantic", "MetaTrader5", "requests", "httpx", "yaml"]
+research = ["pydantic", "MetaTrader5", "requests", "httpx", "yaml"]
+portfolio = ["pandas", "pydantic", "MetaTrader5"]
+execution = ["pandas", "pydantic", "MetaTrader5"]
+analytics = ["pydantic", "MetaTrader5"]
+walkforward = ["pydantic", "MetaTrader5"]
+validation = ["pydantic", "MetaTrader5"]
+optimization = ["pydantic", "MetaTrader5"]
+discovery = ["pydantic", "MetaTrader5"]
+promotion = ["pydantic", "MetaTrader5"]
+
+[rules.third_party.rationale]
+pydantic = """
+Regla institucional: pydantic NUNCA llega al dominio ni a los motores.
+
+Se queda en `config` (infraestructura), donde valida y coacciona la entrada del
+mundo exterior. Lo que cruza hacia dentro son objetos propios -dataclasses
+congeladas de `core.config.models`-, nunca un `BaseModel`.
+
+Tres motivos concretos. Un `BaseModel` trae validacion en el constructor, lo que
+significa que un objeto de dominio podria fallar al construirse por una razon
+ajena a sus invariantes. Trae coercion implicita, que convierte "0.02" en 0.02 sin
+avisar y hace que un error de tipo en un fichero pase inadvertido hasta que el
+resultado sale raro. Y ata la firma de cada funcion del nucleo a la version mayor
+de una libreria de terceros: la migracion de pydantic v1 a v2 habria tocado el
+dominio entero.
+
+La frontera es: Infrastructure -> pydantic -> CoreConfig -> Dominio.
+"""
+yaml = """
+YAML es un proveedor OPCIONAL y solo `config` puede conocerlo. El formato oficial
+es TOML, que esta en la biblioteca estandar y por tanto no puede faltar.
+"""
+
+[rules.legacy_import_paths]
+forbidden_roots = [
+    "core", "domain", "shared",
+    "features", "signals", "strategies", "risk", "backtest",
+]
+
+[rules.duplicate_modules]
+allowed_repeats = [
+    "__init__.py",
+    "command.py", "request.py", "response.py", "runner.py", "service.py",
+    "protocols.py", "exceptions.py", "metadata.py", "params.py",
+    "decorators.py", "registry.py", "catalog.py", "loader.py",
+]

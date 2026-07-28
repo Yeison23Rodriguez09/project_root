@@ -1,0 +1,79 @@
+id = "ADR-0002"
+title = "Por el dominio circulan arrays de numpy, no DataFrames"
+status = "accepted"
+date = "2026-07-26"
+owner = "Research"
+affected_packages = ["domain", "research", "analytics", "storage"]
+
+context = """
+La representacion de la serie de precios atraviesa todo el sistema: features,
+senales, backtest, walk-forward y ejecucion. La eleccion condiciona la
+detectabilidad del error mas caro de la plataforma, que es el desplazamiento
+temporal silencioso.
+
+Un `DataFrame` de pandas arrastra un indice con semantica implicita. Dos
+operaciones que parecen alineadas pueden desalinearse por reindexado sin emitir
+ningun aviso. En un backtest eso es look-ahead indetectable: el resultado mejora
+y nada indica por que.
+"""
+
+decision = """
+Por `domain` y por los motores de calculo circula `Bars`, un objeto de valor
+inmutable que envuelve arrays `numpy` con dtype exacto (`int64` para tiempo,
+`float64` para precio) y valida sus invariantes al construirse. Los buffers se
+marcan como no escribibles.
+
+Pandas queda confinado a la infraestructura: entra en los adaptadores de datos y
+sale en reporting. La matriz lo hace explicito: `pandas` esta prohibido en
+`core`, `domain`, `shared`, `portfolio` y `execution`.
+"""
+
+consequences = """
+Se gana: si un objeto `Bars` existe, sus datos son correctos y estables, asi que
+los motores no repiten comprobaciones defensivas. La alineacion es posicional y
+explicita, no por indice, de modo que un desfase deja de poder ocurrir en
+silencio. El acceso en bucles bar a bar es sustancialmente mas rapido.
+
+Se pierde: la comodidad de pandas para exploracion ad hoc dentro del dominio.
+Compensa con `Bars.field()`, que da acceso por nombre, y con la conversion
+explicita en la frontera de reporting.
+
+Se acepta: mas codigo propio de manipulacion de series. Es deliberado. La ruta
+critica de calculo del edge no debe depender de la semantica de reindexado de una
+libreria de terceros.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_architecture.py::test_third_party_confined"
+description = """
+El validador AST prohibe importar `pandas` en las capas declaradas en
+`[rules.third_party]`. La causalidad, que es el motivo de fondo de esta decision,
+se comprueba aparte en `tests/test_no_lookahead.py`, que perturba las barras
+futuras y exige que ninguna salida pasada cambie.
+"""
+
+[rollback]
+description = """
+Costoso y no automatico. `Bars` es el tipo que atraviesa features, signals,
+backtest y walk-forward: revertir implica reescribir todas las firmas. Por eso la
+decision se toma antes de escribir esos motores y no despues.
+"""
+effort = "semanas"
+
+[[alternatives]]
+option = "DataFrame de pandas en todo el sistema"
+rejected_because = """
+Indice con semantica implicita, mutabilidad compartida por referencia y coste
+alto por acceso a columna. El primer punto es el descalificante: hace el
+look-ahead indetectable.
+"""
+
+[[alternatives]]
+option = "polars en lugar de numpy"
+rejected_because = """
+Resuelve la inmutabilidad y el rendimiento, pero introduce una dependencia mas en
+la ruta critica de calculo y su API sigue evolucionando. `numpy` es estable desde
+hace mas de una decada, y la parte que se usa -aritmetica vectorial sobre
+float64- no va a cambiar.
+"""

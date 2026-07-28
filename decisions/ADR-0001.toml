@@ -1,0 +1,86 @@
+id = "ADR-0001"
+title = "La arquitectura es un modelo declarativo, no el codigo"
+status = "accepted"
+date = "2026-07-26"
+owner = "Platform"
+affected_packages = ["core", "domain", "shared", "application", "interfaces"]
+
+context = """
+En el proyecto anterior la arquitectura vivia en el codigo y en documentacion
+escrita a mano. Las dos fuentes divergieron: la documentacion describia capas
+que el codigo ya no respetaba, y nadie podia saber cual de las dos estaba
+equivocada. La erosion no ocurrio de golpe, ocurrio un import a la vez, y cada
+uno parecia razonable en el momento.
+
+El resultado fue una base densa donde localizar el origen de un comportamiento
+exigia leer el sistema entero.
+"""
+
+decision = """
+La fuente de verdad de la arquitectura son los contratos declarativos de
+`configs/`. El codigo de `app/` es su reflejo, no su origen.
+
+Cuatro contratos, con sujetos distintos y sin solape:
+
+  architecture.toml   estructura (paquetes, capas, capacidades, dependencias)
+                      y comportamiento (determinismo, causalidad, auditabilidad)
+  conventions.toml    calidad del codigo y umbrales, cada uno con su razon
+  runtime.toml        modos de ejecucion y que restringe cada uno
+  plugins.toml        que debe cumplir el codigo que entra desde fuera
+
+No existe un `dependency_rules.toml` separado: las dependencias ya son `depends`
+en architecture.toml. Dos ficheros que describen el mismo hecho acaban
+discrepando, y entonces el test comprueba uno mientras la documentacion promete
+el otro, que es peor que no tener gobernanza porque parece que la hay.
+"""
+
+consequences = """
+Se gana: cualquier restriccion estructural es legible sin leer codigo, y
+verificable sin criterio humano. Un pull request que erosiona una capa falla en
+CI con fichero y linea. La documentacion se deriva de los contratos, asi que no
+puede quedarse obsoleta sin que algo se rompa.
+
+Se pierde: anadir una dependencia legitima ahora exige editar un TOML, no solo
+escribir el import. Es friccion deliberada. El coste de declarar una arista es
+de segundos; el de descubrir seis meses despues que existe, de dias.
+
+Riesgo asumido: los contratos pueden volverse tan detallados que nadie los lea.
+Se mitiga exigiendo que cada umbral y cada regla lleven su motivo al lado; una
+regla sin justificacion es candidata a borrarse, no a respetarse.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_architecture.py::test_matrix_is_respected"
+description = """
+El validador AST recorre cada modulo de `app/` y comprueba sus imports contra la
+matriz. Se complementa con `test_matrix_is_internally_consistent` y
+`test_dependencies_never_climb_layers`, que verifican la matriz contra si misma:
+detectan un error al editarla aunque ningun fichero use todavia la arista mal
+declarada.
+"""
+
+[rollback]
+description = """
+Los contratos son datos: poner `require_package_coverage = false` y los demas
+interruptores de `[rules]` en `false` desactiva la gobernanza sin tocar una
+linea de `app/`. El codigo sigue funcionando porque nunca dependio de los TOML
+para ejecutarse, solo para ser verificado.
+"""
+effort = "minutos"
+
+[[alternatives]]
+option = "Mantener la arquitectura solo en docs/ARCHITECTURE.md"
+rejected_because = """
+Es lo que fallo antes. Un documento no puede romper un build, y lo que no rompe
+el build se ignora bajo presion de entrega.
+"""
+
+[[alternatives]]
+option = "Usar import-linter o una herramienta equivalente"
+rejected_because = """
+Resuelve solo las dependencias. Los contratos de comportamiento -causalidad,
+inmutabilidad del dominio, ausencia de reloj de pared- y los de runtime quedarian
+fuera, en otra fuente. La ventaja de este enfoque es tener un solo sujeto por
+fichero, no una herramienta por regla.
+"""

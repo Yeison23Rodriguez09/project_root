@@ -1,0 +1,71 @@
+###############################################################################
+# SCHEMA.TOML - Que debe contener una decision de arquitectura
+#
+# Los ADR de este proyecto no son prosa: son datos. La diferencia practica es
+# que un ADR en Markdown puede decir "decidimos X" sin que nadie compruebe si X
+# sigue siendo cierto, mientras que un ADR declarativo se verifica.
+#
+# `tests/test_governance.py` comprueba que toda decision aceptada tenga
+# responsable, fecha, validacion y plan de reversion, y que los paquetes que
+# dice afectar existan de verdad. Una decision sin validacion es una opinion; una
+# decision sin reversion es una apuesta.
+###############################################################################
+
+[meta]
+version = 1
+filename_pattern = "ADR-####.toml"
+
+# Principios de CONSTITUTION.md que sostienen este esquema.
+[principle]
+decisions_are_recorded = "P3"
+exceptions_are_justified = "P9"
+
+[fields]
+required = [
+    "id",                  # ADR-0001, estable y nunca reutilizado
+    "title",
+    "status",
+    "date",                # ISO-8601, fecha de la ultima transicion de estado
+    "owner",               # quien responde de esta decision
+    "context",             # que problema existia
+    "decision",            # que se decidio, en una frase
+    "consequences",        # que se gana y que se pierde
+    "affected_packages",   # debe existir en configs/architecture.toml
+]
+
+# Obligatorios solo cuando el estado es `accepted`. Una propuesta puede no
+# tener aun plan de validacion; una decision vigente no puede.
+required_when_accepted = [
+    "validation",   # como se comprueba que la decision se respeta
+    "rollback",     # como se deshace si resulta equivocada
+]
+
+optional = [
+    "supersedes",      # id del ADR que reemplaza
+    "superseded_by",   # se rellena al ser reemplazado
+    "alternatives",    # que mas se considero y por que se descarto
+    "references",
+]
+
+[status]
+allowed = ["proposed", "accepted", "superseded", "rejected", "deprecated"]
+
+[status.rationale]
+superseded = """
+Un ADR reemplazado NO se borra ni se edita. Se marca y se apunta al que lo
+sustituye. El historial de por que se cambio de opinion es tan valioso como la
+decision vigente: sin el, la siguiente persona repite el analisis que ya se hizo.
+"""
+
+[validation]
+# Formas admitidas de validar una decision. `test` es la preferida: es la unica
+# que se comprueba sola.
+kinds = ["test", "script", "review", "manual"]
+require_reference = true
+
+[validation.rationale]
+require_reference = """
+Toda validacion apunta a algo concreto: un nodo de test, un script o un
+documento. "Se revisa en code review" sin decir que se busca no es una
+validacion, es una intencion.
+"""
