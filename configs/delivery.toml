@@ -197,18 +197,8 @@ decision: precedencia, causalidad y promocion.
 ###############################################################################
 
 [state.Foundation]
-status = "blocked"
+status = "in_progress"
 phase = "3"
-blocked_by = """
-El arbol tiene dos jerarquias coexistiendo (`core/` y `app/core/`, `domain/` y
-`app/domain/`) y la consolidacion 2.5 no se ha ejecutado. Nada construido despues
-se ha compilado ni probado.
-
-Desbloqueo: python scripts/consolidate_architecture.py --apply
-             python scripts/generate_docs.py
-             pytest -m "contract or unit"
-             git tag architecture-baseline
-"""
 artifacts = [
     "app/core/types.py",
     "app/core/exceptions.py",
@@ -218,25 +208,83 @@ artifacts = [
     "app/core/validation.py",
     "app/core/registry/",
     "app/core/config/",
-    "app/config/",
+    "app/config/providers/",
     "app/domain/",
     "app/shared/ports.py",
 ]
 principles = ["P1", "P2", "P5", "P6", "P9"]
 decisions = ["ADR-0001", "ADR-0002", "ADR-0003", "ADR-0005"]
-done = []
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+    "fingerprint_stable",
+]
+missing = """
+Desbloqueada: la consolidacion 2.5 se ejecuto y el tag `architecture-baseline`
+existe. El arbol es uno solo, `ruff check` y `mypy --strict` estan limpios sobre
+`app/`, y `tests/test_determinism.py` verifica huella estable y composicion
+reproducible entre procesos distintos.
+
+Quedan los dos criterios que no dependen del codigo sino de la infraestructura
+de verificacion:
+
+* `coverage_met`  - no bloqueante. No se ha medido cobertura todavia.
+* `ci_green`      - bloqueante. No existe pipeline; toda la evidencia es local.
+
+`ready` exige TODOS los criterios, no doce de catorce. Sin CI, "esta verde" es
+una afirmacion sobre la maquina de quien la hizo.
+"""
 
 [state.Orchestration]
 status = "in_progress"
 phase = "3"
-artifacts = ["app/container/preflight.py", "app/application/"]
+artifacts = [
+    "app/container/container.py",
+    "app/container/exceptions.py",
+    "app/container/bootstrap.py",
+    "app/container/preflight.py",
+    "app/container/plugins.py",
+    "app/events/",
+    "app/application/",
+]
 principles = ["P4", "P10"]
 decisions = ["ADR-0006"]
-done = ["code_implemented"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+    "fingerprint_stable",
+]
 missing = """
-Falta el contenedor propiamente dicho: resolucion de puertos, orden topologico
-de `LifecyclePort` y registro de suscriptores del bus. `preflight` existe pero
-todavia no lo invoca nadie.
+El contenedor resuelve puertos, valida el DAG al sellar y ejecuta el ciclo de
+vida en orden topologico. `build_platform` compone reloj, configuracion, bus y
+los tres catalogos, y `qp preflight` es su consumidor real: invoca `Preflight`
+con la configuracion efectiva y el inventario de plugins.
+
+Falta el consumidor real del CICLO DE VIDA. Hoy `build_platform` devuelve el
+contenedor sellado y nadie llama a `start()`: las seis fases estan implementadas
+y probadas en `tests/test_container.py` con dobles, pero ningun componente real
+de la plataforma implementa todavia un hook. Se cerrara cuando exista el primero
+-el sink de monitorizacion es el candidato natural- y no antes: declararlo
+listo con solo dobles seria dar por buena una fase que nunca corrio de verdad.
+
+Pendientes tambien `coverage_met` (no bloqueante) y `ci_green` (bloqueante).
 """
 
 [state.Governance]
@@ -254,8 +302,22 @@ artifacts = [
 ]
 principles = ["P3", "P4", "P5", "P7", "P8", "P9", "P10"]
 decisions = ["ADR-0001", "ADR-0004"]
-done = ["code_implemented", "contracts_updated", "constitution_cited", "adr_recorded"]
-missing = "Ningun test se ha ejecutado todavia. `docs_regenerated` falla a proposito."
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "contracts_updated",
+    "constitution_cited",
+    "adr_recorded",
+    "docs_regenerated",
+    "no_suppressions",
+    "no_warnings",
+]
+missing = """
+La suite se ejecuta y `docs/ARCHITECTURE.md` esta en sincronia con los
+contratos. Pendientes `coverage_met` (no bloqueante) y `ci_green` (bloqueante):
+la gobernanza rompe el build local, pero todavia no hay build remoto que romper.
+"""
 
 [state.Research]
 status = "not_started"
@@ -288,7 +350,31 @@ phase = "3"
 [state.Interface]
 status = "in_progress"
 phase = "3"
-artifacts = ["main.py", "app/interfaces/"]
+artifacts = [
+    "main.py",
+    "app/interfaces/cli/__init__.py",
+    "app/interfaces/cli/doctor_cmd.py",
+    "app/interfaces/cli/preflight_cmd.py",
+    "app/interfaces/cli/status_cmd.py",
+    "app/interfaces/cli/config_cmd.py",
+    "app/interfaces/cli/plugins_cmd.py",
+]
 principles = ["P4"]
-done = ["code_implemented"]
-missing = "Falta `qp doctor`, que es el consumidor real de preflight."
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "contracts_updated",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+El grupo de plataforma esta completo: doctor, preflight, status, config show /
+validate y plugins list / validate. Todos con `--json`, todos con codigo de
+salida distinguido (0 correcto, 1 fallo del comando, 2 uso incorrecto).
+
+Falta `adr_recorded`: el cierre de la fase 3 exige un ADR que registre la
+evidencia, y todavia no existe. Pendientes tambien `coverage_met` (no
+bloqueante) y `ci_green` (bloqueante).
+"""

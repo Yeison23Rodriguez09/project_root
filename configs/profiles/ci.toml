@@ -1,0 +1,19 @@
+###############################################################################
+# PERFIL CI - Verificacion automatica
+#
+# Sin red, sin datos externos, sin broker. Los tests generan sus series: un test
+# que depende de un fichero de mercado descargado deja de ser reproducible el
+# dia que ese fichero cambia, y entonces falla por el motivo equivocado.
+###############################################################################
+
+[runtime]
+# Reloj detenido en el epoch. Dos corridas de CI separadas por una semana deben
+# producir artefactos identicos bit a bit; con reloj real diferirian en cada
+# marca de tiempo y la comparacion no valdria para nada.
+frozen_clock_ns = 0
+
+[config]
+# Redundante con `global.toml` y deliberado: CI es el entorno donde una recarga
+# en caliente pasaria mas desapercibida, porque nadie mira la salida cuando
+# esta verde.
+hot_reload = false

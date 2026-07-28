@@ -1,0 +1,54 @@
+###############################################################################
+# GLOBAL.TOML - Capa base de la configuracion efectiva
+#
+# Prioridad `GLOBAL_FILE` (10): la mas baja por encima de los valores por
+# defecto del codigo. Todo lo de aqui puede sobreescribirse por perfil, por
+# simbolo, por entorno `QP_*` o por `--set`, y la traza registra quien gano.
+#
+# REGLA DE ADMISION: en este fichero solo entra una clave que algun modulo LEA
+# hoy. Una clave que nadie consume es indistinguible de una clave mal escrita, y
+# convierte `qp config show` en un inventario de intenciones en lugar de un
+# reflejo de lo que el sistema hace.
+#
+# Los parametros de negocio -spread, comisiones, ventanas de indicadores,
+# umbrales de riesgo- NO viven aqui. Entran en la fase 4 con su propio esquema
+# tipado y su validacion; declararlos antes de que exista quien los interprete
+# seria inventar reglas de negocio en silencio.
+#
+# Consultar con:  qp config show
+###############################################################################
+
+[meta]
+version = 1
+
+###############################################################################
+# RUNTIME
+###############################################################################
+
+# `runtime.frozen_clock_ns` NO se declara aqui, y su ausencia es la decision.
+#
+# TOML no tiene valor nulo, asi que "sin fijar" solo puede expresarse omitiendo
+# la clave. `app.container.bootstrap._clock_for` lo entiende como "elige por
+# modo": reloj detenido en backtest, ci, benchmark y deterministic; reloj real
+# en research, paper y live. Ponerle 0 en la capa base congelaria tambien el
+# reloj de research y de live, que es exactamente lo contrario de lo que se
+# quiere, y ningun perfil podria devolverlo a "real" porque no hay forma de
+# escribir "ninguno" en un fichero TOML.
+#
+# El perfil que necesita fijarlo -`configs/profiles/ci.toml`- lo declara con su
+# valor. Fijar el instante de una corrida concreta se hace con
+# `--set runtime.frozen_clock_ns=<ns>`, que es explicito y queda en la traza.
+
+###############################################################################
+# CONFIGURACION
+###############################################################################
+
+[config]
+# Recarga en caliente. `false` en la capa base y el modo `live` lo prohibe
+# ademas por contrato (`runtime.toml` -> forbid_config_hot_reload), de modo que
+# activarlo por descuido en produccion falla en preflight y no en la barra 4000.
+#
+# El motivo de la prohibicion: si la configuracion cambiara a mitad de ciclo, el
+# sistema que evaluo la barra `i` no seria el mismo que evaluo la `i-1`, y la
+# auditoria posterior no podria reconstruir la decision.
+hot_reload = false

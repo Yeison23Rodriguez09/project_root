@@ -19,14 +19,22 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable, Sequence
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 #: Comando -> (modulo, descripcion). El modulo se importa solo al invocarse.
+#:
+#: Convencion sin excepciones: el comando `qp X` vive en `X_cmd.py`. El sufijo
+#: no es decorativo. Tres de los cinco nombres colisionan con algo del arbol
+#: -`preflight` es tambien el motor de comprobacion en `app.container`, `config`
+#: es el paquete de proveedores y `plugins` es el contrato-, y un arbol que
+#: prohibe los imports relativos no puede permitirse dos modulos con el mismo
+#: nombre corto. Aplicarlo solo a los que chocan obligaria a saber cuales chocan.
 COMMANDS: dict[str, tuple[str, str]] = {
-    "doctor": ("app.interfaces.cli.doctor", "comprueba que la plataforma este bien construida"),
-    "preflight": ("app.interfaces.cli.preflight", "valida el despliegue antes de operar"),
-    "status": ("app.interfaces.cli.status", "estado calculado de la plataforma"),
+    "doctor": ("app.interfaces.cli.doctor_cmd", "comprueba que la plataforma este bien construida"),
+    "preflight": ("app.interfaces.cli.preflight_cmd", "valida el despliegue antes de operar"),
+    "status": ("app.interfaces.cli.status_cmd", "estado calculado de la plataforma"),
     "config": ("app.interfaces.cli.config_cmd", "muestra y valida la configuracion efectiva"),
+    "plugins": ("app.interfaces.cli.plugins_cmd", "inventario y validacion de plugins"),
     "version": ("", "version de la plataforma"),
 }
 
