@@ -1,0 +1,9 @@
+# Faltan `owner` y `provides`. El loader debe rechazarlo ENTERO en lugar de
+# cargarlo a medias: un bloque sin metadatos completos entra en el espacio de
+# busqueda sin poder auditarse despues.
+name = "plugin_incomplete"
+version = "0.1.0"
+api_version = "1.0"
+kind = "signal"
+capability = "Research"
+description = "Manifiesto al que le faltan campos obligatorios."

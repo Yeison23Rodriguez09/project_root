@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, ClassVar
 
 from app.core.exceptions import PlatformError
 from app.events.bus import ALL_EVENTS, EventBus
@@ -39,7 +39,15 @@ class Recorder:
     max_events: int | None = None
 
     #: Prioridad de grabacion. Muy por debajo del defecto (100) para ir primero.
-    PRIORITY: int = 0
+    #:
+    #: `ClassVar` y no campo de dataclass. Sin la anotacion seria un campo con
+    #: valor por defecto, es decir un parametro del constructor: cualquiera
+    #: podria construir `Recorder(max_events=None, PRIORITY=500)` y la grabacion
+    #: pasaria a ocurrir DESPUES de los suscriptores que pueden fallar. La
+    #: garantia de que el evento queda registrado antes de que nadie lo rompa
+    #: dejaria de ser una propiedad del tipo y pasaria a depender de quien lo
+    #: construya.
+    PRIORITY: ClassVar[int] = 0
 
     def __call__(self, event: Event) -> None:
         if self.max_events is not None and len(self.events) >= self.max_events:

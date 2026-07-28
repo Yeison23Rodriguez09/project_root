@@ -1,0 +1,60 @@
+###############################################################################
+# XAUUSD - Especificacion de instrumento
+#
+# Segundo instrumento del catalogo, y esta aqui por una razon concreta: EURUSD
+# solo no demuestra nada. Con un unico simbolo es imposible detectar que un
+# motor asume el `point` o el `value_per_point_per_lot` de un instrumento
+# concreto, y ese es exactamente el acoplamiento que el catalogo existe para
+# impedir. XAUUSD difiere de EURUSD en las cuatro magnitudes que importan
+# -digits, point, contract_size y valor del punto-, asi que cualquier constante
+# escondida en el codigo falla al cambiar de simbolo.
+#
+# Igual que en EURUSD: la seccion de contrato son hechos del mercado; el bloque
+# [costs] y los limites de volumen dependen del broker y HAY QUE CALIBRARLOS.
+# El oro es ademas el caso donde mas se paga no hacerlo: su spread se ensancha
+# mucho mas que el de un par principal.
+###############################################################################
+
+[instrument]
+
+# -- Contrato (hechos del mercado) --------------------------------------------
+
+# 2 decimales: 1 punto = 0.01 USD por onza.
+point = 0.01
+digits = 2
+
+# Onzas troy por lote estandar.
+contract_size = 100.0
+
+# 100 onzas x 0.01 USD = 1.0 USD por punto y lote.
+# Coincide numericamente con EURUSD por casualidad aritmetica, no por analogia:
+# sale de multiplicar magnitudes completamente distintas.
+value_per_point_per_lot = 1.0
+
+quote_currency = "USD"
+
+# -- Condiciones del broker (CALIBRAR) ----------------------------------------
+
+min_lot = 0.01
+max_lot = 50.0
+lot_step = 0.01
+
+# Apalancamiento 1:20, limite minorista para materias primas distintas del oro
+# en la UE; muchos brokers aplican 1:20 tambien al oro por politica propia.
+# Precio de referencia asumido para el calculo: 2.000 USD/oz.
+margin_per_lot = 10000.0
+
+[instrument.costs]
+
+# El oro suele operarse sin comision explicita y con el coste dentro del spread.
+commission_per_lot = 0.0
+
+# 25 puntos = 0.25 USD por onza. Es el spread tipico en sesion liquida; en la
+# apertura y en datos de empleo estadounidense supera con holgura los 50.
+spread_points = 25.0
+
+slippage_points = 5.0
+
+# Componente proporcional mas alto que en EURUSD: el oro desliza notablemente
+# mas en los mismos regimenes de volatilidad.
+slippage_atr_multiple = 0.10

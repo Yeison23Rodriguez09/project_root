@@ -1,0 +1,10 @@
+# Plugin completo y conforme. Declara los ocho campos obligatorios de
+# configs/plugins.toml -> [manifest].required.
+name = "plugin_valid"
+version = "1.0.0"
+api_version = "1.0"
+kind = "feature"
+capability = "Research"
+owner = "Platform"
+description = "Plugin de referencia usado para verificar el camino de carga externo."
+provides = ["fixture_alpha"]

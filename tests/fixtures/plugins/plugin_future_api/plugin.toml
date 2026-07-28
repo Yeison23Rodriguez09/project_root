@@ -1,0 +1,10 @@
+# Declara una API anterior a la minima aceptada. Se rechaza en lugar de fallar
+# mas tarde con un AttributeError incomprensible.
+name = "plugin_future_api"
+version = "2.0.0"
+api_version = "0.9"
+kind = "feature"
+capability = "Research"
+owner = "Externo"
+description = "Declara una api_version por debajo del minimo del nucleo."
+provides = ["fixture_beta"]

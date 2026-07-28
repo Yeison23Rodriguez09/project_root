@@ -114,6 +114,26 @@ class DataSourceError(DataError):
 
 
 # ---------------------------------------------------------------------------
+# Persistencia
+# ---------------------------------------------------------------------------
+
+
+class StorageError(PlatformError):
+    """El repositorio de artefactos no pudo completar una operacion.
+
+    Es distinto de `DataIntegrityError` y la distincion dirige el diagnostico:
+    aqui el problema esta en el MEDIO -no hay permisos, el disco esta lleno, la
+    ruta se sale del area permitida- mientras que un fallo de integridad dice
+    que el medio esta bien y lo que esta mal es el contenido.
+
+    Confundirlas hace que un artefacto corrupto se investigue como un problema
+    de infraestructura, que es donde no esta.
+    """
+
+    code = "STORAGE_ERROR"
+
+
+# ---------------------------------------------------------------------------
 # Configuracion
 # ---------------------------------------------------------------------------
 
@@ -265,5 +285,6 @@ __all__ = [
     "ProviderUnavailable",
     "RiskLimitBreached",
     "RiskViolation",
+    "StorageError",
     "ValidationError",
 ]

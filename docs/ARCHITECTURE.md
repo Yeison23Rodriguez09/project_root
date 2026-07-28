@@ -79,7 +79,7 @@ Texto completo en [`CONSTITUTION.md`](../CONSTITUTION.md).
 | `walkforward` | `core`, `domain`, `shared`, `research`, `analytics` |
 | `broker` | `core`, `domain`, `shared` |
 | `config` | `core`, `domain`, `shared` |
-| `monitoring` | `core`, `domain`, `shared` |
+| `monitoring` | `core`, `domain`, `shared`, `events` |
 | `storage` | `core`, `domain`, `shared` |
 | `application` | `core`, `domain`, `shared`, `research`, `portfolio`, `execution`, `analytics`, `walkforward`, `validation`, `optimization`, `discovery`, `promotion`, `broker`, `storage`, `monitoring` |
 | `container` | `core`, `domain`, `shared`, `events`, `config`, `research`, `portfolio`, `execution`, `analytics`, `walkforward`, `validation`, `optimization`, `discovery`, `promotion`, `broker`, `storage`, `monitoring` |
@@ -192,6 +192,20 @@ donde eso puede ocurrir, y es la razon de que `main.py` no contenga logica.
 Se mantiene la prohibicion importante: la interfaz NO ve motores. No puede llamar
 a discovery, research ni execution directamente. Solo casos de uso.
 
+### `app/monitoring`
+
+`events` esta en `depends` por ADR-0008. La arista ya estaba decidida en la
+prosa de `packages.events` -"los suscriptores que si hacen I/O viven en
+`monitoring`"- y faltaba en la tabla que leen las herramientas, de modo que un
+suscriptor no podia ni tipar el `Event` que recibe.
+
+Apunta hacia abajo: `events` es capa `core` (rango 0) y `monitoring` es
+`infrastructure` (rango 4). No hay ascenso de capa y no puede introducir ciclos.
+
+Lo que NO cambia: `monitoring` no aparece en el `depends` de ningun motor. Un
+motor no puede importar observabilidad; emite por `EventSinkPort`, declarado en
+`shared`, y el adaptador concreto lo inyecta `container`.
+
 ### `app/promotion`
 
 Subsistema propio, no una carpeta dentro de discovery. Consume la evidencia
@@ -270,6 +284,7 @@ Un plugin solo ve: `app.core`, `app.domain`, `app.shared`. Nada mas.
 | [`ADR-0005`](../decisions/ADR-0005.toml) | accepted | 2026-07-26 | Platform | La configuracion se parte en dos por pureza: resolucion en core, lectura en infraestructura |
 | [`ADR-0006`](../decisions/ADR-0006.toml) | accepted | 2026-07-26 | Platform | La Fase 3 construye una plataforma; los motores no empiezan hasta la Fase 4 |
 | [`ADR-0007`](../decisions/ADR-0007.toml) | accepted | 2026-07-26 | Platform | La arquitectura se congela por stress implementation, con registro de hallazgos |
+| [`ADR-0008`](../decisions/ADR-0008.toml) | accepted | 2026-07-28 | Platform | Monitoring depende de events: la arista que el propio contrato ya declaraba en prosa |
 
 ---
 

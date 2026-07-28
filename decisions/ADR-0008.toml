@@ -1,0 +1,154 @@
+id = "ADR-0008"
+title = "Monitoring depende de events: la arista que el propio contrato ya declaraba en prosa"
+status = "accepted"
+date = "2026-07-28"
+owner = "Platform"
+affected_packages = ["events", "monitoring", "container"]
+
+context = """
+Al construir el bloque B1 de la Fase 3 -observabilidad real- aparece una
+contradiccion INTERNA de `configs/architecture.toml`. El fichero afirma dos
+cosas incompatibles sobre el mismo sujeto.
+
+La prosa de `packages.events.rationale` dice, literalmente:
+
+    "En capa `core` porque el bus es un mecanismo puro: encaminar un evento no
+     toca disco ni red. Los suscriptores que si hacen I/O viven en `monitoring`
+     y se registran desde `container`."
+
+Es decir: el contrato PREVE que `monitoring` albergue suscriptores del bus. Esa
+es la razon declarada por la que el bus vive en `core` y no en infraestructura.
+
+Pero la tabla del mismo fichero dice:
+
+    [packages.monitoring]
+    depends = ["core", "domain", "shared"]
+
+`events` no esta en la lista. Un suscriptor de `monitoring` no puede importar
+`app.events.event` ni siquiera para tipar el `Event` que recibe como argumento.
+Verificado: `tests/test_architecture.py::test_matrix_is_respected` rechaza el
+import con "Permitido: ['app.core', 'app.domain', 'app.shared']".
+
+La consecuencia practica es que la Fase 3 no puede tener un consumidor real de
+eventos, y sin consumidor real el bus es infraestructura muerta -exactamente lo
+que ADR-0006 se comprometio a evitar con su regla operativa: "cada bloque de la
+Fase 3 debe tener al menos un consumidor real en la propia Fase 3 antes de
+considerarse cerrado. Si un bloque no tiene consumidor, es especulacion".
+
+No se descubrio antes porque hasta ahora nadie habia intentado escribir el
+suscriptor. La matriz solo se verifica contra codigo que existe.
+"""
+
+decision = """
+Se anade `events` a `packages.monitoring.depends`.
+
+Se registra como ADR y no como correccion silenciosa porque `architecture.toml`
+esta congelado en el tag `architecture-baseline` y P10 exige que un cambio de
+contrato sea deliberado y visible, nunca un ajuste para que encaje el codigo.
+
+Lo que este ADR NO es: un cambio de diseno. La arista ya estaba decidida -la
+prosa de `packages.events` la declara como el motivo de situar el bus en `core`-
+y lo que faltaba era escribirla en la tabla que las herramientas leen. Es la
+correccion de una discrepancia entre dos partes del mismo contrato, y P5 obliga
+a que un mismo hecho tenga una sola descripcion.
+
+La direccion es la correcta y por eso el cambio es admisible:
+
+    events      layer = "core"            rango 0
+    monitoring  layer = "infrastructure"  rango 4
+
+La dependencia apunta HACIA ABAJO, de rango 4 a rango 0. No hay ascenso de capa
+y por tanto no se toca P2. `tests/test_architecture.py::test_dependencies_never_
+climb_layers` lo verifica sin necesidad de excepcion alguna.
+
+Alcance cerrado: `monitoring` gana acceso a `events` y a nada mas. No se anade
+`monitoring` a ningun `depends` ajeno, de modo que ningun motor puede importar
+observabilidad: los motores siguen emitiendo por `EventSinkPort`, declarado en
+`shared`, y el adaptador concreto lo inyecta `container`.
+"""
+
+consequences = """
+Se gana: el bus de eventos adquiere un consumidor real dentro de la Fase 3
+-`RuntimeMetrics`, que cuenta y agrega el trafico, y `StructlogEventSink`, que
+lo emite como JSON estructurado-. Con ello la regla operativa de ADR-0006 se
+cumple de verdad en lugar de sobre dobles de test, y `structlog` y `orjson`
+-declarados en `pyproject.toml` desde el primer dia y jamas importados- pasan a
+tener uso.
+
+Se gana tambien coherencia: el contrato deja de afirmar dos cosas contrarias, y
+la proxima persona que lea el rationale de `events` encontrara que la tabla lo
+respalda.
+
+Se pierde: `monitoring` deja de poder compilarse sin el paquete `events`. Es un
+coste nominal -ambos son codigo propio y `events` no tiene dependencias externas-
+pero se anota porque es real: un futuro adaptador de observabilidad que quisiera
+distribuirse por separado arrastraria el bus.
+
+Riesgo asumido: abrir `depends` de un paquete es el movimiento que erosiona una
+matriz. Se acota de dos formas. La arista es descendente, asi que no puede
+introducir un ciclo -verificado por `test_no_import_cycles`-. Y `monitoring`
+sigue sin aparecer en el `depends` de ningun motor, de modo que la ganancia de
+visibilidad no se propaga hacia adentro.
+"""
+
+[validation]
+kind = "test"
+reference = "tests/test_architecture.py::test_matrix_is_respected"
+description = """
+El validador AST recorre cada import de `app/monitoring/*.py` y lo contrasta con
+`depends`. Antes de este ADR el import de `app.events.event` fallaba; despues es
+legal, y cualquier OTRO import no declarado -por ejemplo `app.broker`- sigue
+fallando con fichero y linea.
+
+`tests/test_architecture.py::test_dependencies_never_climb_layers` comprueba
+ademas que la arista no asciende de capa, que es la propiedad que hace admisible
+este cambio y no otro.
+
+`tests/test_monitoring.py::test_runtime_metrics_counts_real_bus_traffic` verifica
+que la arista se usa para lo que dice el rationale: un suscriptor real sobre un
+bus real, sin dobles.
+"""
+
+[rollback]
+description = """
+Retirar `events` de `packages.monitoring.depends` y mover los suscriptores a
+`container`, que ya depende de ambos paquetes. El coste es que la logica de
+agregacion de metricas quedaria en la raiz de composicion, mezclando ensamblado
+con calculo, y que `monitoring` volveria a ser un paquete sin contenido.
+
+No requiere migracion de datos ni de artefactos: los suscriptores son objetos en
+memoria y su reubicacion no cambia ningun formato persistido.
+"""
+effort = "una hora"
+
+[[alternatives]]
+option = "Declarar un Protocol `Event` en `shared` para que monitoring no importe `events`"
+rejected_because = """
+Crearia una segunda descripcion del mismo objeto. `Event` ya existe en
+`app.events.event` con su secuencia, su sello de metadatos y su validacion de
+carga serializable; una copia estructural en `shared` tendria que replicar esa
+forma y las dos discreparian en el primer campo que se anadiera. Es exactamente
+lo que P5 prohibe, y a cambio solo evita escribir una arista que el contrato ya
+daba por decidida.
+"""
+
+[[alternatives]]
+option = "Importar `Event` bajo `if TYPE_CHECKING` para esquivar el validador"
+rejected_because = """
+No lo esquiva -`_imports()` recorre el AST completo con `ast.walk` y ve tambien
+los imports condicionales-, y aunque lo esquivara seria peor: la dependencia
+seguiria existiendo en el diseno y dejaria de estar declarada. Una matriz que se
+puede rodear con un truco de tipado no gobierna nada.
+"""
+
+[[alternatives]]
+option = "Registrar los suscriptores desde `container` sin paquete `monitoring`"
+rejected_because = """
+Es el plan de reversion, no una alternativa mejor. `container` es la raiz de
+composicion y su trabajo es ENSAMBLAR; si ademas contuviera la agregacion de
+metricas de runtime, la regla "un runner que hace aritmetica de negocio la tiene
+en el sitio equivocado" se estaria violando en el primer paquete que la enuncia.
+Ademas dejaria la capacidad `Monitoring` declarada en la matriz y sin ningun
+paquete que la implemente, que es lo que `test_every_capability_is_used_and_owned`
+existe para detectar.
+"""

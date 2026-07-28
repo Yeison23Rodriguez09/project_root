@@ -381,8 +381,21 @@ historia, una estrategia en produccion es un numero sin procedencia.
 layer = "infrastructure"
 capability = "Monitoring"
 visibility = "public"
-depends = ["core", "domain", "shared"]
+depends = ["core", "domain", "shared", "events"]
 purpose = "Metricas de runtime, auditoria y health checks."
+rationale = """
+`events` esta en `depends` por ADR-0008. La arista ya estaba decidida en la
+prosa de `packages.events` -"los suscriptores que si hacen I/O viven en
+`monitoring`"- y faltaba en la tabla que leen las herramientas, de modo que un
+suscriptor no podia ni tipar el `Event` que recibe.
+
+Apunta hacia abajo: `events` es capa `core` (rango 0) y `monitoring` es
+`infrastructure` (rango 4). No hay ascenso de capa y no puede introducir ciclos.
+
+Lo que NO cambia: `monitoring` no aparece en el `depends` de ningun motor. Un
+motor no puede importar observabilidad; emite por `EventSinkPort`, declarado en
+`shared`, y el adaptador concreto lo inyecta `container`.
+"""
 
 # -- Orquestacion y operacion -------------------------------------------------
 

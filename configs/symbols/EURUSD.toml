@@ -1,0 +1,77 @@
+###############################################################################
+# EURUSD - Especificacion de instrumento
+#
+# El nombre del fichero ES el simbolo. Lo lee `app.config.instruments`, que es
+# el unico codigo autorizado a abrirlo (ADR-0005), y lo entrega al sistema como
+# `Instrument` ya validado a traves de `InstrumentCatalogPort`.
+#
+# DOS CLASES DE VALOR CONVIVEN AQUI Y NO SE DEBEN CONFUNDIR:
+#
+#   1. Especificacion del contrato -point, digits, contract_size,
+#      value_per_point_per_lot-. Son hechos del mercado. Iguales en cualquier
+#      broker que cotice el par con 5 decimales.
+#
+#   2. Condiciones del broker -min_lot, max_lot, lot_step, margin_per_lot y todo
+#      el bloque [costs]-. VARIAN entre brokers, entre tipos de cuenta y entre
+#      sesiones. Los valores de abajo son de una cuenta retail estandar y estan
+#      puestos para que la plataforma pueda arrancar y validarse, NO porque sean
+#      los tuyos.
+#
+# Antes de operar en real hay que calibrar el bloque [costs] contra el broker
+# concreto. Un backtest con spread 0.8 sobre un broker que cobra 1.6 produce una
+# curva que no existe, y el error no se nota: el resultado sale mejor.
+###############################################################################
+
+[instrument]
+
+# -- Contrato (hechos del mercado) --------------------------------------------
+
+# Incremento minimo de cotizacion. 5 decimales: 1 punto = 0.00001.
+point = 0.00001
+
+# Decimales de cotizacion. Fija el redondeo de todo precio de orden.
+digits = 5
+
+# Unidades del activo por lote estandar. 100.000 EUR.
+contract_size = 100000.0
+
+# Valor monetario de 1 punto por 1 lote, en moneda de cuenta (USD).
+#   100.000 unidades x 0.00001 = 1.0 USD por punto y lote.
+# Se declara explicitamente en lugar de derivarse porque derivarlo exige el tipo
+# de cambio de la divisa de cotizacion, y ese calculo no pertenece al dominio.
+value_per_point_per_lot = 1.0
+
+quote_currency = "USD"
+
+# -- Condiciones del broker (CALIBRAR) ----------------------------------------
+
+# Volumen minimo negociable. Por debajo, `Instrument.round_lots` devuelve 0.0 y
+# el motor trata explicitamente el caso "no se puede operar con este riesgo",
+# en lugar de redondear al alza y superar un limite ya calculado.
+min_lot = 0.01
+max_lot = 100.0
+lot_step = 0.01
+
+# Margen requerido por lote, en moneda de cuenta. Corresponde a apalancamiento
+# 1:30, que es el limite minorista vigente en la UE para pares principales.
+margin_per_lot = 3333.33
+
+[instrument.costs]
+
+# Comision por lote y por LADO. Una cuenta con spread crudo cobra aqui lo que no
+# cobra en el spread; una cuenta con spread ampliado suele dejar esto a cero.
+# Ambas cosas a cero seria la unica combinacion imposible.
+commission_per_lot = 3.5
+
+# Spread tipico en puntos, aplicado al cruzar en cada extremo. 0.8 puntos es
+# tipico de cuenta ECN en sesion de Londres; en la apertura asiatica y en
+# publicaciones macro se multiplica varias veces.
+spread_points = 0.8
+
+# Deslizamiento fijo asumido por orden a mercado, en puntos.
+slippage_points = 0.2
+
+# Componente de deslizamiento proporcional al ATR vigente. Modela que en
+# regimenes volatiles el deslizamiento crece en lugar de mantenerse constante.
+# 0.0 desactiva el componente y hace el backtest mas optimista.
+slippage_atr_multiple = 0.05
