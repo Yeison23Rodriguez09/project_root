@@ -261,7 +261,8 @@ class SignalOutput:
 
     @property
     def active_mask(self) -> BoolArray:
-        return self.direction != 0
+        active: BoolArray = self.direction != 0
+        return active
 
     @property
     def n_long(self) -> int:

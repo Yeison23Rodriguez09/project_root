@@ -424,7 +424,9 @@ class Container:
             report = PhaseReport(phase=hook_name)
             for port in ports:
                 definition = self._definitions[port]
-                component = self.resolve(port)
+                # `port` es `type` sin parametrizar -viene del grafo, no de una
+                # llamada tipada-, asi que `resolve` no puede inferir nada mejor.
+                component: Any = self.resolve(port)
                 hook = getattr(component, hook_name, None)
                 if not callable(hook):
                     continue

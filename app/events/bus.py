@@ -233,7 +233,7 @@ class EventBus:
                             cause=detail,
                         ) from exc
 
-        chain = deliver
+        chain: Callable[[Event], None] = deliver
         for _name, middleware in reversed(self._middlewares):
             chain = _wrap(middleware, chain)
         chain(sealed)

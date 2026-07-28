@@ -13,10 +13,11 @@ from __future__ import annotations
 
 import time
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, cast, runtime_checkable
 
+from app.config.providers.base import ConfigProvider
 from app.config.providers.cli import CommandLineProvider, MappingProvider
 from app.config.providers.env import EnvironmentProvider
 from app.config.providers.toml import TomlFileProvider
@@ -26,7 +27,8 @@ from app.core.config.provenance import Priority, ResolutionTrace
 from app.core.config.resolver import ConfigLayer, resolve
 from app.core.exceptions import ConfigValidationError
 from app.core.registry.registry import Registry
-from app.events.bus import ErrorPolicy, EventBus
+from app.core.types import TimestampNs
+from app.events.bus import DeliveryReport, ErrorPolicy, EventBus
 from app.events.event import Event
 from app.events.recorder import Recorder
 from app.shared.ports import ClockPort
@@ -47,12 +49,36 @@ _STRICT_EVENT_MODES: frozenset[str] = frozenset({"ci", "benchmark"})
 
 @runtime_checkable
 class EventBusPort(Protocol):
-    def publish(self, event: Event, *, source: str, **context: str) -> Any: ...
+    """Publicacion de eventos, vista desde quien emite.
+
+    La firma reproduce la de `EventBus.publish` en lugar de aplanar el contexto
+    en `**context: str`. Un `**kwargs` haria que confundir `causation_id` con
+    `correlation_id` -o escribir `corelation_id`- pasara el chequeo de tipos y
+    apareciera como un evento huerfano meses despues, al auditar.
+    """
+
+    def publish(
+        self,
+        event: Event,
+        *,
+        source: str,
+        correlation_id: str = ...,
+        causation_id: str = ...,
+        run_id: str = ...,
+    ) -> DeliveryReport: ...
 
 
 @runtime_checkable
 class ConfigPort(Protocol):
+    """Configuracion efectiva, vista desde quien la consume.
+
+    Expone `describe()` ademas de `get()` porque `qp status` y `qp doctor`
+    necesitan la huella y las claves no-por-defecto sin conocer `ResolvedConfig`.
+    """
+
     def get(self, key: str, default: Any = None) -> Any: ...
+
+    def describe(self) -> dict[str, Any]: ...
 
 
 class SystemClock:
@@ -64,17 +90,17 @@ class SystemClock:
     recibe `ClockPort` y en los tests recibe un reloj falso.
     """
 
-    def now_ns(self) -> int:
-        return time.time_ns()
+    def now_ns(self) -> TimestampNs:
+        return TimestampNs(time.time_ns())
 
 
 class FrozenClock:
     """Reloj detenido. Para backtest, CI y cualquier corrida determinista."""
 
     def __init__(self, at_ns: int = 0) -> None:
-        self._at = at_ns
+        self._at = TimestampNs(at_ns)
 
-    def now_ns(self) -> int:
+    def now_ns(self) -> TimestampNs:
         return self._at
 
 
@@ -137,7 +163,7 @@ def load_configuration(
     Raises:
         ConfigValidationError: si hay claves en conflicto irresoluble.
     """
-    providers = [
+    providers: list[ConfigProvider] = [
         TomlFileProvider(root / "configs" / "global.toml", Priority.GLOBAL_FILE),
         TomlFileProvider(
             root / "configs" / "profiles" / f"{mode}.toml", Priority.PROFILE_FILE
@@ -200,7 +226,7 @@ def build_platform(
     for kind in ("feature", "signal", "strategy"):
         container.register(
             _registry_port(kind),
-            lambda _c, k=kind: Registry(k),  # type: ignore[misc]
+            _registry_factory(kind),
             component_id=f"registry.{kind}",
         )
 
@@ -229,6 +255,27 @@ def _build_bus(clock: ClockPort, policy: ErrorPolicy) -> EventBus:
     return bus
 
 
+def _registry_factory(kind: str) -> Callable[[Container], Registry[Any]]:
+    """Factoria de catalogo con `kind` capturado por cierre.
+
+    Funcion aparte y no un `lambda` dentro del bucle. Un `lambda` capturaria la
+    variable del bucle por referencia y los tres catalogos acabarian siendo el
+    de `strategy`; el truco del argumento por defecto lo evita, pero a costa de
+    una firma que no es la del puerto y de la supresion que hace falta para
+    silenciarla. Mismo criterio que `_wrap` en `app.events.bus`.
+
+    `Registry[Any]` y no un tipo concreto: la raiz de composicion crea los tres
+    catalogos vacios antes de que exista un solo bloque, y features, signals y
+    strategies tienen firmas distintas. El tipo se estrecha donde se consume,
+    que es donde se sabe cual de los tres se esta pidiendo.
+    """
+
+    def build(_container: Container) -> Registry[Any]:
+        return Registry(kind)
+
+    return build
+
+
 _REGISTRY_PORTS: dict[str, type] = {}
 
 
@@ -240,7 +287,12 @@ def _registry_port(kind: str) -> type:
     clave y solo sobreviviera uno.
     """
     if kind not in _REGISTRY_PORTS:
-        _REGISTRY_PORTS[kind] = type(f"{kind.capitalize()}RegistryPort", (Protocol,), {})
+        # `Protocol` es una forma especial y `type()` espera clases reales; el
+        # cast lo declara sin cambiar nada en ejecucion. El puerto solo se usa
+        # como CLAVE del contenedor: nunca se instancia ni se comprueba con
+        # isinstance, asi que su unica propiedad relevante es ser unico.
+        bases = cast("tuple[type, ...]", (Protocol,))
+        _REGISTRY_PORTS[kind] = type(f"{kind.capitalize()}RegistryPort", bases, {})
     return _REGISTRY_PORTS[kind]
 
 
@@ -262,7 +314,7 @@ def platform_report(root: Path, *, mode: str = "research") -> dict[str, Any]:
     config = container.resolve(ConfigPort)
     report["composed"] = True
     report["container"] = container.describe()
-    report["config"] = config.describe()  # type: ignore[attr-defined]
+    report["config"] = config.describe()
 
     delivery = root / "configs" / "delivery.toml"
     if delivery.is_file():

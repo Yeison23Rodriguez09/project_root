@@ -148,7 +148,8 @@ def is_aligned(ts_ns: IntArray, timeframe: Timeframe) -> BoolArray:
     del broker aplicado sin normalizar) y debe detectarse antes de calcular
     nada sobre esa serie.
     """
-    return (ts_ns % timeframe.nanoseconds) == 0
+    aligned: BoolArray = (ts_ns % timeframe.nanoseconds) == 0
+    return aligned
 
 
 def bar_gaps(ts_ns: IntArray, timeframe: Timeframe) -> IntArray:

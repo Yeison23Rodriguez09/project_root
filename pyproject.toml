@@ -275,13 +275,34 @@ plugins = [
 
 ]
 
+# `type-abstract` prohibe pasar una clase abstracta -o un Protocol- donde se
+# espera `type[T]`. La regla existe para impedir que se instancie algo que no se
+# puede instanciar, y aqui NADA se instancia: el contenedor usa el Protocol como
+# CLAVE de su registro (`container.resolve(BrokerPort)`), nunca lo construye.
+#
+# Se desactiva globalmente y no con supresiones por linea porque el patron es la
+# columna vertebral del sistema (ADR-0006) y reaparece en cada punto de registro
+# de las fases 4 a 10. Cincuenta `# type: ignore` identicos no comunican nada y
+# acaban copiandose a sitios donde si esconden un fallo real; una decision
+# escrita una vez, si.
+disable_error_code = [
+
+    "type-abstract",
+
+]
+
 [[tool.mypy.overrides]]
 
 module = [
 
+    # Dependencias sin stubs. `MetaTrader5` y `structlog` entran en las fases 3 y
+    # 10; `yaml` es un proveedor de configuracion opcional a proposito y por eso
+    # nunca podra asumirse instalado.
     "MetaTrader5.*",
 
     "structlog.*",
+
+    "yaml.*",
 
 ]
 

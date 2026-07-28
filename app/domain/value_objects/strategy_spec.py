@@ -156,21 +156,23 @@ class StrategySpec:
         """
         for group_name in ("entries", "exits", "contexts"):
             group: tuple[BlockSpec, ...] = getattr(self, group_name)
-            keys = [stable_hash(b.to_dict()) for b in group if b.enabled]
-            if len(set(keys)) != len(keys):
-                seen: set[str] = set()
-                repeated = sorted(
-                    {
-                        str(b.name)
-                        for b, k in zip(
-                            [x for x in group if x.enabled], keys, strict=True
-                        )
-                        if (k in seen) or bool(seen.add(k))  # type: ignore[func-returns-value]
-                    }
-                )
-                raise InvariantViolation(
-                    f"Bloques duplicados en {group_name}", blocks=repeated
-                )
+            enabled = [b for b in group if b.enabled]
+            keys = [stable_hash(b.to_dict()) for b in enabled]
+            if len(set(keys)) == len(keys):
+                continue
+            # Se acumulan los nombres por huella y se denuncian los que aparecen
+            # mas de una vez. El error nombra el bloque repetido, no solo dice
+            # que hay uno: en un spec generado por discovery, con veinte bloques,
+            # "hay un duplicado" no permite corregir nada.
+            names_by_key: dict[str, list[str]] = {}
+            for block, key in zip(enabled, keys, strict=True):
+                names_by_key.setdefault(key, []).append(str(block.name))
+            repeated = sorted(
+                {names[0] for names in names_by_key.values() if len(names) > 1}
+            )
+            raise InvariantViolation(
+                f"Bloques duplicados en {group_name}", blocks=repeated
+            )
 
     # -- identidad ----------------------------------------------------------
 

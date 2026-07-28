@@ -24,7 +24,7 @@ escribibles. Si un objeto `Bars` existe, sus datos son correctos y estables.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import numpy as np
 
@@ -247,7 +247,11 @@ class Bars:
             return self.typical_price
         if name == "median":
             return self.median_price
-        return getattr(self, name)  # type: ignore[no-any-return]
+        # `getattr` dinamico: el nombre ya se valido contra PRICE_FIELDS arriba,
+        # asi que el acceso es seguro, pero mypy no puede saberlo y lo tipa como
+        # Any. Sustituirlo por una cadena de `if` explicita repetiria la lista de
+        # campos por segunda vez y crearia la ocasion de que las dos discrepen.
+        return cast("FloatArray", getattr(self, name))
 
     # -- transformacion (siempre devuelve un objeto nuevo) ------------------
 
