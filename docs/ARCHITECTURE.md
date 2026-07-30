@@ -285,7 +285,8 @@ Un plugin solo ve: `app.core`, `app.domain`, `app.shared`. Nada mas.
 | [`ADR-0006`](../decisions/ADR-0006.toml) | accepted | 2026-07-26 | Platform | La Fase 3 construye una plataforma; los motores no empiezan hasta la Fase 4 |
 | [`ADR-0007`](../decisions/ADR-0007.toml) | accepted | 2026-07-26 | Platform | La arquitectura se congela por stress implementation, con registro de hallazgos |
 | [`ADR-0008`](../decisions/ADR-0008.toml) | accepted | 2026-07-28 | Platform | Monitoring depende de events: la arista que el propio contrato ya declaraba en prosa |
+| [`ADR-0009`](../decisions/ADR-0009.toml) | accepted | 2026-07-30 | Platform | El sello de los artefactos derivados no depende del tiempo fisico |
 
 ---
 
-Generado el 2026-07-28 por `scripts/generate_docs.py`.
+Generado por `scripts/generate_docs.py` desde `configs/architecture.toml` v3.
