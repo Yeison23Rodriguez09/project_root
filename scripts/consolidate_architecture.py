@@ -684,7 +684,14 @@ def step_reports(apply: bool) -> None:
         ),
         "dependency_graph.svg": _render_svg(levels, package_edges),
         "architecture_report.md": _report_markdown(
-            graph, levels, package_edges, violations, cycles, orphans, duplicated
+            graph,
+            levels,
+            package_edges,
+            violations,
+            cycles,
+            orphans,
+            duplicated,
+            str(matrix.get("meta", {}).get("version", "?")),
         ),
     }
 
@@ -707,9 +714,8 @@ def _report_markdown(
     cycles: list[list[str]],
     orphans: list[str],
     duplicated: dict[str, list[str]],
+    matrix_version: str,
 ) -> str:
-    from datetime import UTC, datetime
-
     rows = "\n".join(
         f"| {package} | {levels.get(package, '-')} | "
         f"{sum(1 for m in graph if m.startswith(package))} | "
@@ -721,7 +727,11 @@ def _report_markdown(
     )
     return (
         "# Reporte de consolidacion arquitectonica\n\n"
-        f"Generado: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\n\n"
+        # Sin marca temporal (ADR-0009): `architecture_report.md` esta declarado
+        # como artefacto derivado en `architecture.toml [derived]`, y un sello de
+        # reloj lo hace irreproducible. La version del contrato si es procedencia.
+        f"Generado por `scripts/consolidate_architecture.py` desde "
+        f"`configs/architecture.toml` v{matrix_version}\n\n"
         f"- Modulos analizados: **{len(graph)}**\n"
         f"- Aristas entre paquetes: **{len(package_edges)}**\n"
         f"- Violaciones de la matriz: **{len(violations)}**\n"
