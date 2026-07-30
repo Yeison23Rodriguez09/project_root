@@ -253,7 +253,33 @@ markers = [
 
 [tool.mypy]
 
-python_version = "3.11"
+# 3.13 y no el 3.11 de `requires-python`, y el motivo es de HERRAMIENTA, no de
+# compatibilidad del paquete.
+#
+# Los stubs de numpy 2.5 usan sintaxis PEP 695 -`type _Falsy = ...` en
+# `numpy/__init__.pyi`-, que exige 3.12 o superior. Con `--python-version 3.11`
+# mypy aborta al leer ese fichero antes de analizar una sola linea propia:
+#
+#     numpy/__init__.pyi:737: error: Type statement is only supported in
+#     Python 3.12 and greater  [syntax]
+#     Found 1 error in 1 file (errors prevented further checking)
+#
+# Fijar 3.11 aqui no daria un analisis mas estricto: daria NINGUN analisis. Las
+# tres alternativas se descartaron por empeorar el resultado -clavar numpy a una
+# version con stubs 3.11 constrine el nucleo numerico de una plataforma
+# cuantitativa, y excluir numpy de mypy debilita el gate justo en la frontera
+# numerica, que es donde mas se necesita-.
+#
+# `requires-python = ">=3.11"` NO se rebaja por esto. El codigo propio no usa
+# sintaxis 3.12+ y los `.pyi` no se ejecutan nunca, asi que la limitacion es del
+# analisis estatico y no de la ejecucion. Quien verifica la compatibilidad real
+# es la matriz de `.github/workflows/ci.yml`, que corre `pytest` en 3.11, 3.12 y
+# 3.13. Analisis estatico y compatibilidad de ejecucion se comprueban por vias
+# distintas a proposito.
+#
+# Revisar cuando numpy publique stubs compatibles con 3.11, o cuando
+# `requires-python` suba por una decision de producto.
+python_version = "3.13"
 
 strict = true
 
