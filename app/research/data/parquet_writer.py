@@ -26,11 +26,11 @@ from typing import Any
 
 import numpy as np
 
-from app.core.determinism import stable_hash
 from app.core.exceptions import StorageError
-from app.core.types import ContentHash, Symbol, Timeframe
+from app.core.types import Symbol, Timeframe
 from app.domain.entities.bars import Bars
 from app.domain.value_objects.dataset import WriteResult
+from app.research.data.identity import content_hash_of
 from app.research.data.layout import DatasetLayout
 
 #: Columnas del artefacto, en orden fijo. El orden forma parte del formato: dos
@@ -79,7 +79,7 @@ class ParquetMarketDataWriter:
         self._write_atomically(table, target)
 
         return WriteResult(
-            content_hash=self._content_hash(bars),
+            content_hash=content_hash_of(bars),
             bytes_written=target.stat().st_size,
             bar_count=len(bars),
             physical_location=str(target),
@@ -145,26 +145,5 @@ class ParquetMarketDataWriter:
                 path=str(target),
                 cause=str(exc),
             ) from exc
-
-    @staticmethod
-    def _content_hash(bars: Bars) -> ContentHash:
-        """Huella del CONTENIDO, no del fichero.
-
-        Se deriva de los datos y de la identidad de la serie, nunca de la ruta ni
-        del instante: dos escrituras del mismo `Bars` en sitios distintos deben
-        dar la misma huella, y la misma serie reprocesada debe dar una distinta.
-        Es lo que permite detectar que los numeros cambiaron bajo el mismo
-        nombre.
-        """
-        return stable_hash(
-            {
-                "symbol": str(bars.symbol),
-                "timeframe": str(bars.timeframe),
-                "columns": {
-                    name: np.asarray(getattr(bars, name)).tobytes().hex() for name in COLUMNS
-                },
-            }
-        )
-
 
 __all__ = ["COLUMNS", "ParquetMarketDataWriter"]

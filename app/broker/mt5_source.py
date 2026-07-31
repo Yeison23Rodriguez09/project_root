@@ -168,6 +168,18 @@ class MT5MarketDataAdapter:
 
     # -- MarketDataPort ------------------------------------------------------
 
+    def _ensure_connected(self) -> None:
+        """Conecta si aun no se hizo, y verifica terminal y sesion.
+
+        Sin esto, `load` sobre un terminal sin inicializar llega hasta
+        `copy_rates`, que devuelve vacio, y el usuario recibe "no hay barras
+        para el par pedido" cuando el problema real es que no hay terminal. Un
+        diagnostico equivocado cuesta mas que un fallo: manda a buscar el error
+        donde no esta.
+        """
+        if not self._connected:
+            self.connect()
+
     def available_symbols(self) -> Sequence[Symbol]:
         """Simbolos publicados por el broker, en orden alfabetico.
 
@@ -175,6 +187,7 @@ class MT5MarketDataAdapter:
         terminal los devuelve en el orden de su propia base de datos y cualquier
         artefacto derivado dejaria de ser reproducible.
         """
+        self._ensure_connected()
         raw = self.terminal.symbols_get()
         if raw is None:
             return ()
@@ -203,6 +216,8 @@ class MT5MarketDataAdapter:
             DataSourceError: el simbolo no existe, el terminal no devolvio datos
                 o el marco temporal no tiene equivalente en MT5.
         """
+        self._ensure_connected()
+        self._select(symbol)
         native_timeframe = self._native_timeframe(timeframe)
         rates = self._copy_rates(symbol, native_timeframe, start_ns, end_ns)
 
@@ -239,6 +254,29 @@ class MT5MarketDataAdapter:
         )
 
     # -- interno -------------------------------------------------------------
+
+    def _select(self, symbol: Symbol) -> None:
+        """Anade el simbolo a Market Watch si no estaba.
+
+        MT5 no entrega historico de un simbolo que no este seleccionado: devuelve
+        vacio con "Invalid params", que sugiere un error de llamada cuando lo que
+        falta es la seleccion. Un broker publica aqui 1581 instrumentos y solo
+        unos pocos vienen seleccionados de fabrica, asi que sin esto casi
+        cualquier descarga fallaria con un diagnostico que apunta al sitio
+        equivocado.
+
+        Es el unico efecto que este adaptador tiene sobre el terminal, y es el
+        minimo necesario para leer: no modifica graficos, ni plantillas, ni nada
+        que el operador vea.
+        """
+        if not self.terminal.symbol_select(str(symbol), True):
+            code, detail = self._last_error()
+            raise DataSourceError(
+                "El broker no admite ese simbolo",
+                symbol=str(symbol),
+                mt5_code=code,
+                mt5_detail=detail,
+            )
 
     def _native_timeframe(self, timeframe: Timeframe) -> int:
         """Traduce el marco temporal del dominio al entero de MT5.

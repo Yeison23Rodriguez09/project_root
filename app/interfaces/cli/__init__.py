@@ -31,6 +31,7 @@ __version__ = "0.6.0"
 #: nombre corto. Aplicarlo solo a los que chocan obligaria a saber cuales chocan.
 COMMANDS: dict[str, tuple[str, str]] = {
     "doctor": ("app.interfaces.cli.doctor_cmd", "comprueba que la plataforma este bien construida"),
+    "download": ("app.interfaces.cli.download_cmd", "descarga un historico y lo registra"),
     "preflight": ("app.interfaces.cli.preflight_cmd", "valida el despliegue antes de operar"),
     "status": ("app.interfaces.cli.status_cmd", "estado calculado de la plataforma"),
     "config": ("app.interfaces.cli.config_cmd", "muestra y valida la configuracion efectiva"),

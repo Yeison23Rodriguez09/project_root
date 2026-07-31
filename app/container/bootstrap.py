@@ -336,3 +336,4 @@ __all__ = [
     "load_configuration",
     "platform_report",
 ]
+

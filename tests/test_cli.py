@@ -42,6 +42,10 @@ EXPECTED_EXIT: dict[str, int] = {
     "--help": 0,
     "version": 0,
     "doctor": 0,
+    # Sin argumentos obligatorios es USO INCORRECTO, no fallo del comando:
+    # argparse rechaza la invocacion antes de tocar nada. La descarga real se
+    # ejercita en test_download_command, que si le pasa una fuente.
+    "download": 2,
     "doctor --json": 0,
     "preflight": 0,
     "preflight --json": 0,
