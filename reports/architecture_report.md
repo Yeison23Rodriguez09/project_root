@@ -2,11 +2,11 @@
 
 Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **124**
-- Aristas entre paquetes: **28**
+- Modulos analizados: **125**
+- Aristas entre paquetes: **31**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **78**
+- Modulos huerfanos: **79**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -26,7 +26,7 @@ Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.t
 | app.interfaces | 7 | 9 | 3 |
 | app.live | 6 | 1 | 0 |
 | app.monitoring | 4 | 4 | 2 |
-| app.optimization | 3 | 1 | 0 |
+| app.optimization | 3 | 2 | 3 |
 | app.paper | 6 | 1 | 0 |
 | app.portfolio | 3 | 1 | 0 |
 | app.promotion | 3 | 6 | 0 |
@@ -103,6 +103,7 @@ _ninguno_
 - `app.monitoring.runtime_metrics`
 - `app.monitoring.sink`
 - `app.optimization`
+- `app.optimization.engine`
 - `app.paper`
 - `app.portfolio`
 - `app.promotion`

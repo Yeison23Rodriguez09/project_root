@@ -55,6 +55,7 @@ app.monitoring.run_context
 app.monitoring.runtime_metrics
 app.monitoring.sink
 app.optimization
+app.optimization.engine
 app.paper
 app.portfolio
 app.promotion

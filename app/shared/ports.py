@@ -534,6 +534,22 @@ class PromotionPolicyPort(Protocol):
 
 
 @runtime_checkable
+class ObjectivePort(Protocol):
+    """Puntua un candidato sobre una serie. Mayor es mejor.
+
+    Es la frontera que permite optimizar sin conocer como se evalua. Hoy lo
+    implementa un doble; manana lo implementara la cadena backtest + analytics
+    sin que el optimizador cambie una linea.
+
+    La puntuacion es SIEMPRE dentro de muestra: el optimizador ve los mismos
+    datos sobre los que ajusta. Por eso su resultado no es evidencia de nada
+    todavia, y por eso existe walk-forward.
+    """
+
+    def score(self, spec: StrategySpec, bars: Bars) -> float: ...
+
+
+@runtime_checkable
 class SearchSpacePort(Protocol):
     """Espacio de busqueda enumerable y muestreable de discovery."""
 
