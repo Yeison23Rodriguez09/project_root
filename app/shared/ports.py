@@ -38,6 +38,7 @@ from app.domain.value_objects.instrument import Instrument
 from app.domain.value_objects.metrics import PerformanceMetrics
 from app.domain.value_objects.signal import SignalOutput
 from app.domain.value_objects.strategy_spec import StrategySpec
+from app.domain.value_objects.validation_metrics import StatisticalTestResult
 
 # ---------------------------------------------------------------------------
 # Tiempo
@@ -566,6 +567,78 @@ class ObjectivePort(Protocol):
 
 
 @runtime_checkable
+class FoldEvidencePort(Protocol):
+    """Un fold ya evaluado, visto por quien lo juzga.
+
+    Solo las dos puntuaciones. Quien valida no necesita saber que rango temporal
+    ocupaba el fold ni que variante se ajusto en el: pedirlo ataria la validacion
+    a la forma concreta del resultado de walk-forward.
+    """
+
+    @property
+    def is_score(self) -> float: ...
+
+    @property
+    def oos_score(self) -> float: ...
+
+
+@runtime_checkable
+class WalkForwardEvidencePort(Protocol):
+    """Evidencia de un walk-forward, vista por quien la somete a contraste.
+
+    Existe porque `architecture.toml` declara `validation` y `walkforward` como
+    capacidades HERMANAS -misma `capability = "Validation"`, y `walkforward` no
+    esta en el `depends` de `validation`-, no como proveedor y consumidor. Quien
+    puede ver a las dos es `promotion`.
+
+    La consecuencia es deseable y no un rodeo: la validacion estadistica opera
+    sobre puntuaciones por fold, y le da igual si las produjo un walk-forward, un
+    combinatorial purged CV o una reejecucion archivada. Al ser estructural, el
+    resultado de walk-forward la cumple sin importar este modulo ni conocerlo.
+    """
+
+    @property
+    def spec(self) -> StrategySpec: ...
+
+    @property
+    def outcomes(self) -> Sequence[FoldEvidencePort]: ...
+
+    @property
+    def dataset_fingerprint(self) -> str: ...
+
+    @property
+    def seed(self) -> int: ...
+
+
+@runtime_checkable
+class FoldTestPort(Protocol):
+    """Contraste de hipotesis sobre las puntuaciones por fold.
+
+    Hermano de `StatisticalTestPort` y deliberadamente distinto: aquel recibe
+    `trades`, `equity` y `bars` -opera sobre UN backtest-, mientras que este
+    recibe la serie de puntuaciones de N folds. Forzar las pruebas de fold en
+    aquella firma obligaria a inventar trades que no existen.
+
+    `alpha` entra como parametro y no se lee dentro: el umbral que separa
+    "significativo" de "ruido" es politica, no propiedad de la prueba. La prueba
+    calcula el p-valor; el veredicto se sella con el umbral vigente para poder
+    auditar despues con cual se decidio.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    def run(
+        self,
+        *,
+        is_scores: FloatArray,
+        oos_scores: FloatArray,
+        alpha: float,
+        seed: int,
+    ) -> StatisticalTestResult: ...
+
+
+@runtime_checkable
 class SearchSpacePort(Protocol):
     """Espacio de busqueda enumerable y muestreable de discovery."""
 
@@ -594,6 +667,8 @@ __all__ = [
     "EventSinkPort",
     "ExecutionSimulatorPort",
     "FeatureFn",
+    "FoldEvidencePort",
+    "FoldTestPort",
     "InstrumentCatalogPort",
     "LifecyclePort",
     "LiveFeedPort",
@@ -609,4 +684,5 @@ __all__ = [
     "StrategyFitterPort",
     "StrategyRepositoryPort",
     "TradeRepositoryPort",
+    "WalkForwardEvidencePort",
 ]
