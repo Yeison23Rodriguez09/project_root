@@ -20,7 +20,6 @@ import argparse
 import re
 import sys
 import tomllib
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -228,9 +227,15 @@ def render() -> str:
             )
         out.append(_table(["Id", "Estado", "Fecha", "Responsable", "Titulo"], rows))
 
+    # El pie no lleva fecha (ADR-0009). Declara la procedencia -generador y
+    # version del contrato- y nada mas: la salida tiene que depender solo de
+    # `configs/`, porque `test_derived_docs_are_in_sync` la compara byte a byte y
+    # un reloj de pared la pondria roja en cada cambio de dia sin que ningun
+    # contrato hubiera cambiado. La antiguedad del fichero vive en `git log`.
+    version = architecture.get("meta", {}).get("version", "?")
     out.append(
-        f"\n---\n\nGenerado el {datetime.now(UTC).strftime('%Y-%m-%d')} por "
-        "`scripts/generate_docs.py`.\n"
+        f"\n---\n\nGenerado por `scripts/generate_docs.py` desde "
+        f"`configs/architecture.toml` v{version}.\n"
     )
     return "".join(out)
 

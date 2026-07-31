@@ -20,6 +20,7 @@ Contratos verificados:
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import tomllib
@@ -490,6 +491,53 @@ def test_derived_docs_are_in_sync() -> None:
         f"{target.relative_to(ROOT)} esta desfasado respecto a los contratos.\n"
         "  Regenera con: python scripts/generate_docs.py\n"
         "  No lo edites a mano: es una vista, no una fuente (P7)."
+    )
+
+
+@pytest.mark.contract
+def test_derived_docs_are_independent_of_the_clock() -> None:
+    """Ningun generador de artefactos derivados lee el reloj de pared (ADR-0009).
+
+    Es lo que hace verificable a `test_derived_docs_are_in_sync`. Ese test compara
+    byte a byte, asi que cualquier dato tomado del tiempo fisico lo pone en rojo en
+    cada cambio de dia sin que ningun contrato haya cambiado. Ocurrio: el pie del
+    documento llevaba `datetime.now(UTC)`, el criterio bloqueante `docs_regenerated`
+    caducaba cada 24 horas, y la respuesta aprendida fue editar el artefacto a mano
+    -la senal de degradacion que BUILD.md nombra-.
+
+    Se comprueba el AST y no el texto, por el mismo motivo que
+    `test_architecture.py::test_no_wall_clock`: nombrar `datetime.now` en la prosa
+    que EXPLICA la prohibicion no es incumplirla, y una regla que no distingue su
+    enunciado de su violacion acaba desactivada.
+
+    Y se comprueba el GENERADOR, no su salida. La salida contiene fechas
+    legitimas -la columna `Fecha` de la tabla de decisiones sale de
+    `decisions/*.toml`-, que son datos de contrato y por tanto deterministas.
+    Prohibirlas en el artefacto seria confundir "no depende del reloj" con "no
+    contiene fechas", y romperia al primer ADR nuevo.
+    """
+    forbidden = ("datetime.now", "datetime.utcnow", "date.today", "time.time", "time.time_ns")
+    generators = (
+        ROOT / "scripts" / "generate_docs.py",
+        ROOT / "scripts" / "consolidate_architecture.py",
+    )
+
+    offenders: list[str] = []
+    for path in generators:
+        if not path.exists():  # pragma: no cover
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            call = ast.unparse(node.func)
+            if any(call.endswith(needle) for needle in forbidden):
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} llama a {call}()")
+
+    assert not offenders, (
+        "Un generador de artefactos derivados lee el reloj de pared:\n  "
+        + "\n  ".join(offenders)
+        + "\n  ADR-0009: el pie declara generador y version de contrato, nunca la fecha."
     )
 
 

@@ -6,6 +6,7 @@ app.application.live
 app.application.promotion
 app.broker
 app.config
+app.config.instruments
 app.config.providers
 app.config.providers.yaml
 app.container
@@ -38,10 +39,16 @@ app.execution
 app.interfaces
 app.interfaces.api
 app.interfaces.cli
-app.interfaces.cli.doctor
-app.interfaces.cli.status
+app.interfaces.cli.config_cmd
+app.interfaces.cli.doctor_cmd
+app.interfaces.cli.plugins_cmd
+app.interfaces.cli.preflight_cmd
+app.interfaces.cli.status_cmd
 app.live
 app.monitoring
+app.monitoring.run_context
+app.monitoring.runtime_metrics
+app.monitoring.sink
 app.optimization
 app.paper
 app.portfolio
@@ -60,6 +67,7 @@ app.research.strategies
 app.shared
 app.storage
 app.storage.artifacts
+app.storage.artifacts.store
 app.storage.zoo
 app.validation
 app.walkforward
