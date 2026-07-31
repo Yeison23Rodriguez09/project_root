@@ -39,6 +39,7 @@ import numpy as np
 from app.core.exceptions import DataIntegrityError, DataSourceError
 from app.core.types import Symbol, Timeframe, TimestampNs
 from app.domain.entities.bars import Bars
+from app.research.data.layout import DatasetLayout
 
 #: Columnas que todo fichero debe traer. `volume` no entra: hay proveedores que
 #: no lo publican, y `Bars` admite su ausencia con ceros. Un volumen inventado
@@ -48,44 +49,29 @@ REQUIRED_COLUMNS: tuple[str, ...] = ("timestamp", "open", "high", "low", "close"
 #: Columna opcional, tratada aparte por lo anterior.
 OPTIONAL_COLUMNS: tuple[str, ...] = ("volume",)
 
-#: Extension de los ficheros de historico.
-SUFFIX = ".parquet"
-
-
 class ParquetMarketData:
-    """Historicos en disco, un fichero por simbolo y marco temporal.
+    """Historicos en disco, segun la disposicion que se le inyecta.
 
-    Disposicion:
-
-        <root>/<SIMBOLO>/<TIMEFRAME>.parquet
-
-    Un fichero por par en lugar de uno particionado por fecha. Es la forma mas
-    simple que satisface el caso de uso -cargar un rango de un instrumento- y
-    evita tener que decidir hoy un esquema de particionado que solo se puede
-    dimensionar con volumenes reales. Cambiarlo despues no toca el puerto:
-    quienes lo consumen ven `load(symbol, timeframe, ...)` y nada mas.
+    NO decide donde estan los ficheros: se lo pregunta al `DatasetLayout`, el
+    mismo objeto que consulta `ParquetMarketDataWriter`. Antes derivaba la ruta
+    por su cuenta, y con la llegada del escritor eso habria significado dos
+    implementaciones de la misma convencion divergiendo en el primer cambio: el
+    sintoma seria un historico escrito que nadie encuentra al leer (ADR-0011).
     """
 
-    def __init__(self, root: Path) -> None:
-        self._root = root
+    def __init__(self, layout: DatasetLayout) -> None:
+        self._layout = layout
 
     # -- MarketDataPort -----------------------------------------------------
 
     def available_symbols(self) -> Sequence[Symbol]:
         """Simbolos con al menos un historico, en orden alfabetico.
 
-        El orden se fija en lugar de heredar el del sistema de ficheros: en
-        Linux `iterdir` devuelve el orden del directorio, que depende de como se
-        creo, y cualquier artefacto derivado de esta lista dejaria de ser
-        reproducible entre maquinas.
+        El inventario lo resuelve el layout: saber QUE hay es conocimiento de la
+        disposicion, y cambiar a particionado por fecha cambiaria como se
+        enumera sin que el lector deba enterarse.
         """
-        if not self._root.is_dir():
-            return ()
-        return tuple(
-            Symbol(child.name)
-            for child in sorted(self._root.iterdir(), key=lambda p: p.name)
-            if child.is_dir() and any(child.glob(f"*{SUFFIX}"))
-        )
+        return self._layout.symbols()
 
     def load(
         self,
@@ -135,7 +121,7 @@ class ParquetMarketData:
     # -- interno ------------------------------------------------------------
 
     def _path_for(self, symbol: Symbol, timeframe: Timeframe) -> Path:
-        path = self._root / str(symbol) / f"{timeframe}{SUFFIX}"
+        path = self._layout.path_for(symbol, timeframe)
         if not path.is_file():
             raise DataSourceError(
                 "No hay historico para el par pedido",
@@ -226,4 +212,4 @@ class ParquetMarketData:
         return mask
 
 
-__all__ = ["OPTIONAL_COLUMNS", "REQUIRED_COLUMNS", "SUFFIX", "ParquetMarketData"]
+__all__ = ["OPTIONAL_COLUMNS", "REQUIRED_COLUMNS", "ParquetMarketData"]

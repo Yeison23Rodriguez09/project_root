@@ -33,6 +33,7 @@ from app.core.validation import ValidationReport
 from app.domain.entities.bars import Bars
 from app.domain.entities.order import Order, OrderIntent
 from app.domain.entities.trade import Position, Trade
+from app.domain.value_objects.dataset import WriteResult
 from app.domain.value_objects.instrument import Instrument
 from app.domain.value_objects.metrics import PerformanceMetrics
 from app.domain.value_objects.signal import SignalOutput
@@ -99,6 +100,50 @@ class LiveFeedPort(Protocol):
     def latest_closed_bar_ns(self, symbol: Symbol, timeframe: Timeframe) -> TimestampNs: ...
 
     def current_spread_points(self, symbol: Symbol) -> float: ...
+
+
+@runtime_checkable
+class MarketDataWriterPort(Protocol):
+    """Persistencia de historicos ya validados. Serializa y nada mas.
+
+    Contrapartida de `MarketDataPort`: aquel lee, este escribe. La simetria es
+    intencionada -el mismo `Bars` entra y sale sin cambiar de forma- y es lo que
+    permite que un historico descargado hoy se relea manana con las mismas
+    garantias.
+
+    Recibe `Bars` y ningun dato adicional porque no lo necesita: el simbolo y el
+    marco temporal son campos obligatorios de la serie, asi que el escritor no
+    puede depositarla bajo una identidad equivocada. El dato dice a que
+    instrumento pertenece.
+
+    Lo que este puerto NO hace, y la lista es el contrato (ADR-0011):
+
+    * no decide la ubicacion, el nombre ni la organizacion del repositorio: eso
+      lo resuelve una estrategia de disposicion que el adaptador recibe, de modo
+      que lector y escritor comparten convencion y no pueden divergir;
+    * no valida -si le llega un `Bars` es porque el tipo ya lo garantizo-;
+    * no normaliza, no deduplica y no descarga incrementalmente;
+    * no conoce proveedor, version, reloj ni catalogo de datasets.
+
+    Todo eso pertenece al servicio de almacenamiento. Un adaptador que decidiera
+    cualquiera de esas cosas tendria reglas de negocio dentro, y entonces
+    cambiar la politica obligaria a tocar la infraestructura.
+    """
+
+    def write(self, bars: Bars, *, overwrite: bool = False) -> WriteResult:
+        """Persiste la serie y devuelve los hechos tecnicos de la escritura.
+
+        `overwrite` va aqui y no en el llamante porque solo el adaptador sabe si
+        el destino ya existe. Por defecto es `False`: sobrescribir un historico
+        debe pedirse, nunca ocurrir por descuido.
+
+        Raises:
+            StorageError: el destino existe y `overwrite` es `False`, o el medio
+                no admitio la escritura.
+        """
+        ...
+
+    def exists(self, symbol: Symbol, timeframe: Timeframe) -> bool: ...
 
 
 @runtime_checkable
@@ -521,6 +566,7 @@ __all__ = [
     "LifecyclePort",
     "LiveFeedPort",
     "MarketDataPort",
+    "MarketDataWriterPort",
     "PromotionPolicyPort",
     "PromotionRepositoryPort",
     "RiskPolicyPort",

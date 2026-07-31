@@ -18,6 +18,7 @@ import pytest
 
 from app.core.exceptions import DataIntegrityError, DataSourceError, InvariantViolation
 from app.core.types import Symbol, Timeframe, TimestampNs
+from app.research.data.layout import DatasetLayout
 from app.research.data.parquet_source import ParquetMarketData
 from app.shared.ports import MarketDataPort
 
@@ -77,14 +78,14 @@ def test_the_adapter_satisfies_the_port(tmp_path: Path) -> None:
     Es lo que permite que el adaptador MT5 de la rebanada siguiente sustituya a
     este sin que ningun consumidor cambie una linea.
     """
-    assert isinstance(ParquetMarketData(tmp_path), MarketDataPort)
+    assert isinstance(ParquetMarketData(DatasetLayout(root=tmp_path)), MarketDataPort)
 
 
 @pytest.mark.integration
 def test_a_valid_history_becomes_validated_bars(tmp_path: Path) -> None:
     _write(tmp_path, count=10)
 
-    bars = ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+    bars = ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
     assert len(bars) == 10
     assert str(bars.symbol) == "EURUSD"
@@ -103,7 +104,7 @@ def test_volume_is_optional(tmp_path: Path) -> None:
     """
     _write(tmp_path, count=6, drop=("volume",))
 
-    bars = ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+    bars = ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
     assert len(bars) == 6
     assert np.all(np.asarray(bars.volume) == 0.0)
@@ -124,7 +125,7 @@ def test_range_selection_includes_both_ends(tmp_path: Path) -> None:
     """
     _write(tmp_path, count=10)
 
-    bars = ParquetMarketData(tmp_path).load(
+    bars = ParquetMarketData(DatasetLayout(root=tmp_path)).load(
         Symbol("EURUSD"),
         Timeframe.M15,
         start_ns=TimestampNs(2 * M15_NS),
@@ -146,7 +147,7 @@ def test_an_empty_range_is_a_fact_not_an_error(tmp_path: Path) -> None:
     """
     _write(tmp_path, count=5)
 
-    bars = ParquetMarketData(tmp_path).load(
+    bars = ParquetMarketData(DatasetLayout(root=tmp_path)).load(
         Symbol("EURUSD"),
         Timeframe.M15,
         start_ns=TimestampNs(10_000 * M15_NS),
@@ -173,7 +174,7 @@ def test_unsorted_rows_are_rejected_not_sorted(tmp_path: Path) -> None:
     _write(tmp_path, timestamp=ts)
 
     with pytest.raises(InvariantViolation):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
 
 @pytest.mark.integration
@@ -184,7 +185,7 @@ def test_off_grid_timestamps_are_rejected_not_corrected(tmp_path: Path) -> None:
     _write(tmp_path, timestamp=ts)
 
     with pytest.raises(InvariantViolation):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
 
 @pytest.mark.integration
@@ -199,7 +200,7 @@ def test_market_gaps_pass_through_untouched(tmp_path: Path) -> None:
     ts[3:] += 48 * 60 * 60 * 1_000_000_000
     _write(tmp_path, timestamp=ts)
 
-    bars = ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+    bars = ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
     assert len(bars) == 6  # las seis, sin rellenar el hueco
 
@@ -211,7 +212,7 @@ def test_incoherent_ohlc_is_rejected_not_repaired(tmp_path: Path) -> None:
     _write(tmp_path, count=8, columns={"high": close - 0.01})
 
     with pytest.raises(InvariantViolation):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
 
 @pytest.mark.integration
@@ -221,7 +222,7 @@ def test_nan_prices_are_rejected_not_interpolated(tmp_path: Path) -> None:
     _write(tmp_path, count=8, columns={"close": close})
 
     with pytest.raises(InvariantViolation):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +234,7 @@ def test_nan_prices_are_rejected_not_interpolated(tmp_path: Path) -> None:
 def test_a_missing_history_is_a_source_error(tmp_path: Path) -> None:
     """La distincion dirige el diagnostico: falta el fichero, no esta corrupto."""
     with pytest.raises(DataSourceError):
-        ParquetMarketData(tmp_path).load(Symbol("NOEXISTE"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("NOEXISTE"), Timeframe.M15)
 
 
 @pytest.mark.integration
@@ -242,7 +243,7 @@ def test_missing_columns_are_an_integrity_error(tmp_path: Path) -> None:
     _write(tmp_path, count=5, drop=("high",))
 
     with pytest.raises(DataIntegrityError):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.M15)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.M15)
 
 
 @pytest.mark.integration
@@ -251,7 +252,7 @@ def test_a_timeframe_without_history_is_a_source_error(tmp_path: Path) -> None:
     _write(tmp_path, timeframe=Timeframe.M15)
 
     with pytest.raises(DataSourceError):
-        ParquetMarketData(tmp_path).load(Symbol("EURUSD"), Timeframe.H1)
+        ParquetMarketData(DatasetLayout(root=tmp_path)).load(Symbol("EURUSD"), Timeframe.H1)
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +272,7 @@ def test_available_symbols_is_sorted_and_ignores_empty_directories(tmp_path: Pat
         _write(tmp_path, symbol=symbol, count=3)
     (tmp_path / "SIN_DATOS").mkdir()
 
-    symbols = ParquetMarketData(tmp_path).available_symbols()
+    symbols = ParquetMarketData(DatasetLayout(root=tmp_path)).available_symbols()
 
     assert [str(s) for s in symbols] == ["EURUSD", "GBPUSD", "XAUUSD"]
 
@@ -284,4 +285,4 @@ def test_an_absent_root_yields_no_symbols(tmp_path: Path) -> None:
     plataforma tiene que poder arrancar y decir "no hay historicos" en lugar de
     fallar al inventariarlos.
     """
-    assert ParquetMarketData(tmp_path / "no_existe").available_symbols() == ()
+    assert ParquetMarketData(DatasetLayout(root=tmp_path / "no_existe")).available_symbols() == ()
