@@ -2,11 +2,11 @@
 
 Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **122**
-- Aristas entre paquetes: **25**
+- Modulos analizados: **124**
+- Aristas entre paquetes: **28**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **76**
+- Modulos huerfanos: **78**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -19,7 +19,7 @@ Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.t
 | app.config | 4 | 8 | 2 |
 | app.container | 5 | 6 | 4 |
 | app.core | 0 | 19 | 0 |
-| app.discovery | 3 | 14 | 0 |
+| app.discovery | 3 | 16 | 3 |
 | app.domain | 1 | 15 | 1 |
 | app.events | 0 | 4 | 1 |
 | app.execution | 3 | 1 | 0 |
@@ -66,6 +66,7 @@ _ninguno_
 - `app.discovery`
 - `app.discovery.catalog`
 - `app.discovery.constraints`
+- `app.discovery.engine`
 - `app.discovery.evaluation`
 - `app.discovery.evolution`
 - `app.discovery.evolution.crossover`
@@ -73,6 +74,7 @@ _ninguno_
 - `app.discovery.evolution.mutation`
 - `app.discovery.evolution.selection`
 - `app.discovery.generator`
+- `app.discovery.generator.search_space`
 - `app.discovery.graph`
 - `app.discovery.pruning`
 - `app.discovery.scoring`
