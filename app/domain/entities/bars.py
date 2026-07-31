@@ -106,21 +106,30 @@ class Bars:
                 )
 
     def _freeze(self) -> None:
-        """Impide la mutacion posterior de los buffers.
+        """Toma copia propia de cada buffer y la congela.
 
         Sin esto, `frozen=True` protegeria unicamente las referencias, no el
         contenido: `bars.close[0] = 999` seguiria funcionando.
+
+        Se copia SIEMPRE, y no solo cuando el array es una vista. Congelar en
+        sitio los que traen `owndata` parecia un ahorro razonable y tenia un
+        efecto lateral sobre la memoria de quien llama: `np.asarray` devuelve el
+        MISMO objeto cuando el dtype ya coincide, de modo que construir un `Bars`
+        dejaba de solo lectura el array del llamante. Y lo hacia de forma
+        impredecible, porque `owndata` depende de como se creo el array:
+        `np.arange` y `np.full` lo tienen a True -se congelaban-, `np.linspace` a
+        False -se copiaba-. Dos adaptadores identicos salvo en como llenaron sus
+        buffers se comportaban distinto.
+
+        El coste es una copia por array en construccion, acotada y unica por
+        carga. A cambio, `Bars` no toca memoria ajena nunca: la entrada no se
+        muta, que es la misma regla que `core.math` se aplica a si mismo.
         """
         for name in ("timestamp", "open", "high", "low", "close", "volume"):
             array: np.ndarray = getattr(self, name)
-            if array.flags.owndata:
-                array.setflags(write=False)
-            else:
-                # Es una vista de otro array; se sustituye por una copia propia
-                # congelada para que congelar aqui no dependa del duenno.
-                copy = array.copy()
-                copy.setflags(write=False)
-                object.__setattr__(self, name, copy)
+            private = array.copy()
+            private.setflags(write=False)
+            object.__setattr__(self, name, private)
 
     def _enforce_invariants(self) -> None:
         """Verifica las condiciones sin las cuales ningun calculo tiene sentido.
@@ -166,6 +175,52 @@ class Bars:
         if np.any(self.volume < 0):
             raise InvariantViolation(
                 "volume negativo", first_bad_index=int(np.argmax(self.volume < 0))
+            )
+        self._enforce_timeframe_grid()
+
+    def _enforce_timeframe_grid(self) -> None:
+        """Todo salto entre barras es un multiplo exacto del timeframe.
+
+        Es la invariante que impide que una serie diga ser M15 y contenga barras
+        de H1, o que un adaptador entregue timestamps desplazados medio periodo.
+        Sin ella `timeframe` seria una etiqueta y no un hecho, y todo lo que se
+        deriva de el -anualizacion, warmup, alineacion de folds- se calcularia
+        sobre un supuesto que nadie comprueba.
+
+        Se exige MULTIPLO y no espaciado constante, y la diferencia es la que
+        hace utilizable esta invariante con datos reales: EURUSD en M15 tiene un
+        hueco de unas 48 horas cada fin de semana, mas festivos y cortes de
+        sesion. Exigir `diff == timeframe` rechazaria toda serie de mercado
+        existente. Un hueco de fin de semana es un multiplo; una barra de H1
+        colada en una serie M15 tambien lo es -cuatro periodos-, pero entonces el
+        error esta en el CONTENIDO de la barra, no en su posicion, y eso lo
+        detecta el validador de calidad.
+
+        Lo que deliberadamente NO se comprueba es la alineacion a rejilla
+        absoluta -`timestamp % timeframe == 0`-. Seria mas estricto y estaria
+        mal: las barras diarias de la mayoria de brokers cierran en su medianoche
+        de servidor, no en la de UTC, y una D1 legitima de MT5 fallaria. La
+        alineacion es una convencion del proveedor; la periodicidad, un hecho de
+        la serie.
+
+        Los huecos siguen siendo responsabilidad de `research.data.validators`,
+        que INFORMA en lugar de lanzar: cuantos, cuando y de que tamano. Aqui
+        solo se garantiza que la serie vive sobre la rejilla que dice.
+        """
+        if self.timestamp.size < 2:
+            return
+        step = self.timeframe.nanoseconds
+        gaps = np.diff(self.timestamp)
+        offgrid = gaps % step != 0
+        if np.any(offgrid):
+            index = int(np.argmax(offgrid))
+            raise InvariantViolation(
+                "El salto entre barras no es multiplo del timeframe",
+                symbol=str(self.symbol),
+                timeframe=str(self.timeframe),
+                first_bad_index=index,
+                gap_ns=int(gaps[index]),
+                step_ns=step,
             )
 
     @classmethod
