@@ -1,0 +1,295 @@
+id = "ADR-0011"
+title = "La cadena de datos se parte en tres piezas que no se conocen entre si"
+status = "accepted"
+date = "2026-07-31"
+owner = "Platform"
+
+affected_packages = ["shared", "domain", "research", "broker", "application", "interfaces"]
+
+context = """
+La Fase 4 arranca con el primer eslabon de la cadena objetivo:
+
+    MT5 -> descargar -> validar -> guardar -> DatasetRepository
+
+Existian ya `MarketDataPort` -lectura- y `DatasetRepositoryPort` -catalogo-, y
+un adaptador de fichero (R1b). Faltaba todo lo que escribe, todo lo que habla
+con el terminal y todo lo que coordina las tres cosas.
+
+La tentacion evidente era un componente unico: algo que se conectara a MT5,
+descargara, validara, escribiera Parquet y anotara el resultado. Habria
+funcionado, y habria hecho imposible cambiar el proveedor sin tocar el
+almacenamiento, o el formato sin tocar la descarga. En una plataforma cuyo
+proposito es sobrevivir a diez fases mas, eso es exactamente lo que no puede
+ocurrir en el primer eslabon.
+
+Habia ademas tres restricciones ya escritas en los contratos que condicionan
+cualquier diseno aqui:
+
+* `configs/architecture.toml` PROHIBE `MetaTrader5` en el paquete `research`.
+  Un motor que pudiera hablar con un terminal dejaria de ser reproducible sin
+  que nada lo delatara.
+* `configs/runtime.toml` exige `require_synthetic_data_only` en modo `ci`. El
+  pipeline no puede hablar con un broker real, luego el adaptador MT5 tiene que
+  ser verificable sin terminal.
+* `app/shared` solo puede ver `core` y `domain`, de modo que cualquier tipo que
+  devuelva un puerto tiene que vivir en una de esas dos capas.
+"""
+
+decision = """
+Se parte la cadena en TRES piezas con responsabilidades disjuntas, mas un
+coordinador. Ninguna conoce a las otras.
+
+A. `MarketDataWriterPort` -contrato publico, en `shared`-.
+
+   Contrapartida de `MarketDataPort`: aquel lee, este escribe. Recibe `Bars` y
+   NINGUN dato adicional, porque simbolo y marco temporal son campos
+   obligatorios de la serie desde ADR-0010: el escritor no puede depositarla
+   bajo una identidad equivocada, y no hay argumento con el que confundirse.
+
+   `overwrite` va en el puerto y no en el llamante porque solo el adaptador sabe
+   si el destino existe. Por defecto `False`: sobrescribir un historico debe
+   pedirse, nunca ocurrir por descuido.
+
+B. `WriteResult` -objeto de valor, en `domain`-.
+
+   Cuatro campos y solo cuatro: `content_hash`, `bytes_written`, `bar_count`,
+   `physical_location`. Hechos TECNICOS de la escritura.
+
+   NO lleva proveedor, ni version, ni fecha, ni identidad de catalogo. Si los
+   llevara, el escritor tendria que recibirlos, y entonces un adaptador de
+   infraestructura conoceria reglas de negocio. Quien compone esos datos es el
+   servicio, que si conoce el proveedor, el reloj inyectado y el catalogo.
+
+   Vive en `domain` y no en `research` porque lo devuelve un puerto de `shared`.
+
+C. `DatasetLayout` -convencion de disposicion, en `research.data`-.
+
+   Resuelve ubicacion, naming y organizacion, que son las tres preguntas que ni
+   el lector ni el escritor deben responder por su cuenta. Lo consumen AMBOS.
+
+   Es la pieza menos vistosa y la que evita el fallo mas caro: el lector de R1b
+   derivaba su ruta; con el escritor habrian sido dos implementaciones de la
+   misma convencion, y la primera discrepancia habria producido un historico
+   escrito que nadie encuentra al leer. Cambiar de disposicion -a particionado
+   por fecha, por ejemplo- no toca ningun puerto.
+
+   Se llama `DatasetLayout` y no `...Strategy` porque en esta plataforma
+   "estrategia" es el concepto central del dominio -`StrategySpec`,
+   `StrategyId`, el zoo- y reutilizar la palabra para una convencion de rutas
+   colisiona donde mas cuesta.
+
+D. `MT5MarketDataAdapter` -en `broker`-.
+
+   Implementa UNICAMENTE `MarketDataPort`. No guarda nada.
+
+   Vive en `broker` porque la matriz prohibe `MetaTrader5` en `research`. El
+   adaptador de fichero y este implementan el mismo puerto desde paquetes
+   distintos: es el cuadro hexagonal correcto y el contrato ya lo anticipaba.
+
+   NO recibe credenciales y no las pedira. Se conecta al terminal que YA tiene
+   sesion iniciada: la autenticacion es del operador, no del software, y un
+   adaptador que aceptara usuario y contrasena convertiria cada fichero de
+   configuracion y cada log en un sitio donde pueden filtrarse.
+
+   El modulo `MetaTrader5` se INYECTA en lugar de importarse en cabecera. Solo
+   existe en Windows con terminal instalado -un import de cabecera impediria
+   hasta leer el contrato en Linux- y un terminal inyectable es lo que permite
+   probarlo con un doble, que el contrato de `ci` exige.
+
+E. `ParquetMarketDataWriter` -en `research.data`-.
+
+   Implementa UNICAMENTE `MarketDataWriterPort`. Serializa y nada mas: no
+   valida, no normaliza, no deduplica, no cataloga, no decide rutas -se las
+   pregunta al layout- y no conoce reloj ni proveedor.
+
+   Escritura ATOMICA, con temporal en el directorio de destino y renombrado. Un
+   proceso interrumpido dejaria un Parquet truncado que el lector aceptaria como
+   serie corta, y una serie corta silenciosa produce un backtest que corre y
+   miente. El temporal va en el directorio de destino porque un renombrado entre
+   volumenes no es atomico.
+
+F. `ParquetDatasetCatalog` -en `research.data`-.
+
+   Implementa `DatasetRepositoryPort`. Indexa; NO materializa. Volver a escribir
+   aqui produciria dos artefactos del mismo hecho.
+
+   `get()` comprueba que lo recuperado siga teniendo la huella registrada. Si el
+   artefacto se reproceso por detras, devolverlo en silencio invalidaria toda
+   comparacion contra resultados anteriores sin que nadie se enterase.
+
+G. La identidad de una serie tiene UNA definicion: `research.data.identity`.
+
+   La usan el escritor -para informar- y el catalogo -para indexar-. Con una
+   definicion por consumidor, el catalogo acabaria apuntando a un artefacto que
+   no reconoce. Se deriva del contenido y de la identidad de la serie, nunca de
+   la ruta ni del instante.
+
+H. `HistoricalStorageService` -en `application.download`- es el UNICO componente
+   autorizado a coordinar lectura, escritura y registro.
+
+   Ningun adaptador conoce a otro: la fuente no sabe que se persiste, el escritor
+   no sabe de donde vino la serie y el catalogo no sabe quien la escribio. Esa
+   ignorancia mutua es lo que permite cambiar de proveedor sin tocar el
+   almacenamiento, y de formato sin tocar la descarga.
+
+   No valida a mano: la validacion la hace `Bars` al construirse, dentro del
+   adaptador de origen. Repetirla aqui duplicaria una garantia y daria a entender
+   que el tipo no basta.
+
+   Anota en el linaje el rango PEDIDO ademas del obtenido. Su diferencia es
+   informacion: pedir cinco anos y recibir dos significa que el terminal no tiene
+   mas historico, y sin registrarlo alguien lo leeria despues como que el mercado
+   no cotizo.
+
+I. `qp download` traduce argumentos y delega. La superficie se fija completa
+   desde el primer commit -`--symbol --timeframe --from --to --broker
+   --overwrite`- aunque parte solo se ejercite en fases posteriores: cambiar la
+   firma de un comando publicado cuesta mas que preverla.
+
+Ubicacion de la composicion: `application.download.runner`, NO `container`. La
+matriz rechaza que `container` importe `application`, y la division resulta
+correcta -el contenedor compone la PLATAFORMA y `application` los CASOS DE USO-.
+Alli el reloj no puede tener defecto, porque `application` tampoco puede importar
+`container`; entra desde la raiz de composicion. Ningun contrato se modifico para
+acomodar el codigo: el codigo se movio.
+"""
+
+consequences = """
+Se gana la propiedad que justifica todo lo anterior: cambiar de proveedor es
+cambiar un argumento. `qp download --broker FILE` y `--broker MT5` recorren
+exactamente el mismo servicio, el mismo escritor y el mismo catalogo. Cuando
+llegue un tercer proveedor -un CSV historico, otro broker- no habra que tocar
+nada de lo que ya funciona.
+
+Se gana que el adaptador MT5 sea verificable sin terminal. Toda la bateria corre
+en CI, que es lo que `require_synthetic_data_only` exige y lo que impide que la
+suite dependa de la maquina de quien la escribio.
+
+Se paga en numero de piezas: donde un componente monolitico tendria un fichero,
+aqui hay siete. Es el coste deliberado de que ninguna sepa de las otras, y se
+anota porque es real: alguien que lea la cadena por primera vez tiene mas saltos
+que dar.
+
+Riesgo asumido y NO resuelto: MT5 publica el instante de apertura en la zona
+horaria del SERVIDOR del broker, no necesariamente en UTC. No se aplica
+correccion porque inventarla sin medirla desplazaria toda la serie, y un
+desplazamiento uniforme NO rompe ninguna invariante de `Bars`: pasaria
+inadvertido y contaminaria cada backtest posterior. Queda documentado en el
+codigo y pendiente de medicion contra un instrumento de horario conocido antes
+de que Discovery consuma estos datos.
+
+Fuera de alcance a proposito, para la rebanada siguiente: descarga incremental,
+deduplicacion y versionado. El puerto no los impide y el servicio es el sitio
+donde entraran.
+"""
+
+references = [
+    "app/shared/ports.py",
+    "app/domain/value_objects/dataset.py",
+    "app/research/data/layout.py",
+    "app/research/data/identity.py",
+    "app/research/data/parquet_writer.py",
+    "app/research/data/catalog.py",
+    "app/broker/mt5_source.py",
+    "app/application/download/service.py",
+    "app/application/download/runner.py",
+    "app/interfaces/cli/download_cmd.py",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_mt5_adapter.py"
+description = """
+La bateria completa corre SIN terminal MT5, que es la condicion que la hace
+valida en CI. `tests/fakes/mt5.py` reproduce la superficie que el adaptador
+consume y devuelve los rates como array ESTRUCTURADO de numpy, que es la forma
+exacta en que `copy_rates_*` los publica: un doble que devolviera un diccionario
+haria pasar los tests y fallar contra el terminal real.
+
+Cubre, ademas del camino feliz:
+
+  * las TRES comprobaciones de conexion con diagnostico distinto -terminal
+    caido, sesion ausente, servidor desconectado-, porque confundirlas manda a
+    reinstalar cuando lo que falta es iniciar sesion;
+  * que `load` conecte por su cuenta, que era el defecto que devolvia "no hay
+    barras" cuando no habia terminal;
+  * que el simbolo se seleccione ANTES de pedir datos, sin lo cual MT5 devuelve
+    vacio con "Invalid params" y el diagnostico apunta al sitio equivocado;
+  * que la conversion de segundos a nanosegundos no redondee;
+  * que una serie corrupta entregada por el terminal se RECHACE y no se repare;
+  * que el adaptador no acepte credenciales, fijado como asercion sobre su firma
+    para que anadirlas sea una decision visible.
+
+`tests/test_market_data_writer.py` verifica la atomicidad y que la huella
+dependa del contenido y no del sitio ni del momento.
+`tests/test_dataset_catalog.py` verifica la deteccion de reprocesamiento, que es
+lo que da sentido al catalogo.
+`tests/test_historical_storage_service.py` prueba la orquestacion con DOBLES de
+los cuatro puertos: con adaptadores reales, un test verde no distinguiria entre
+"el servicio orquesta bien" y "los adaptadores compensan un fallo del servicio".
+`tests/test_dataset_layout.py` fija la convencion compartida.
+"""
+
+[rollback]
+description = """
+`git revert` de los commits de R2A. Se retiran `MarketDataWriterPort`,
+`WriteResult`, el layout, el escritor, el catalogo, el adaptador MT5, el
+servicio y el comando; el lector de R1b vuelve a derivar su propia ruta.
+
+No requiere migracion de datos. Los historicos ya escritos quedarian en disco y
+serian ilegibles solo si tambien se revirtiera la disposicion, que es la misma
+que el lector usaba antes. El catalogo -`datasets.json`- quedaria huerfano y
+puede borrarse sin perdida: es un indice reconstruible a partir de los
+artefactos.
+"""
+effort = "una hora"
+
+[[alternatives]]
+option = "Un unico componente que descargue, valide, escriba y catalogue"
+rejected_because = """
+Funciona hasta el primer cambio. Sustituir MT5 por otro proveedor obligaria a
+tocar el codigo que escribe Parquet, y cambiar de formato obligaria a tocar el
+que habla con el terminal, aunque ninguna de las dos cosas tenga que ver con la
+otra.
+
+El coste no es teorico: la Fase 4 preve al menos tres consumidores mas de esta
+cadena -Discovery, walk-forward, paper- y cada uno la usaria a traves del mismo
+cuello. Un monolito aqui se paga durante nueve fases.
+"""
+
+[[alternatives]]
+option = "Que el escritor decida por si mismo la ruta, como hacia el lector"
+rejected_because = """
+Serian dos implementaciones de la misma convencion. Mientras coincidan no pasa
+nada; el dia que difieran, el sintoma es un historico escrito que nadie
+encuentra al leer, y el diagnostico es dificil porque ambas piezas parecen
+correctas por separado.
+
+Extraer la convencion cuesta una clase de treinta lineas y elimina la clase
+entera de fallo.
+"""
+
+[[alternatives]]
+option = "Que `MarketDataWriterPort` devuelva un `StoredDataset` completo"
+rejected_because = """
+Los campos de un dataset almacenado -proveedor, version, fecha de creacion,
+identidad de catalogo- no los conoce el escritor. Para devolverlos tendria que
+recibirlos, y entonces un adaptador de infraestructura conoceria metadatos de
+negocio y dependeria del reloj, que `rules.wall_clock` le prohibe.
+
+El escritor devuelve lo que sabe; el servicio compone el resto. La division no
+es purismo: es lo que permite que el escritor no cambie cuando cambie la politica
+de versionado.
+"""
+
+[[alternatives]]
+option = "Probar el adaptador MT5 contra el terminal real"
+rejected_because = """
+`configs/runtime.toml` exige `require_synthetic_data_only` en modo `ci`. Un test
+que dependa de un terminal solo pasa en la maquina de quien lo escribio y falla
+en CI por el motivo equivocado -no hay MT5- ocultando si el codigo esta bien.
+
+La verificacion contra el terminal real es valiosa y se hizo: 4129 barras de
+EURUSD M15 descargadas y validadas. Pero es una comprobacion de ACEPTACION, no
+una prueba de regresion, y las dos cosas no se mezclan en la misma suite.
+"""

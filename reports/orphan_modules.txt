@@ -2,6 +2,7 @@ app.analytics
 app.application
 app.application.backtest
 app.application.discovery
+app.application.download
 app.application.live
 app.application.promotion
 app.broker
@@ -42,6 +43,7 @@ app.interfaces.api
 app.interfaces.cli
 app.interfaces.cli.config_cmd
 app.interfaces.cli.doctor_cmd
+app.interfaces.cli.download_cmd
 app.interfaces.cli.plugins_cmd
 app.interfaces.cli.preflight_cmd
 app.interfaces.cli.status_cmd
@@ -62,7 +64,6 @@ app.promotion.ranking
 app.research
 app.research.backtest
 app.research.data
-app.research.data.parquet_source
 app.research.features
 app.research.signals
 app.research.strategies

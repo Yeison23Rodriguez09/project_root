@@ -365,3 +365,51 @@ def test_unevaluated_candidate_is_distinguishable_from_a_bad_one() -> None:
             folds=5, is_return=0.2, oos_return=0.1, wfe=0.5, stability=0.6
         )
     ).is_evaluated
+
+
+# ---------------------------------------------------------------------------
+# F. El resultado tecnico de una escritura (ADR-0011)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_write_result_carries_only_technical_facts() -> None:
+    """Cuatro campos, y la ausencia del resto es el contrato.
+
+    Si llevara proveedor, version o fecha, el escritor tendria que recibirlos y
+    un adaptador de infraestructura conoceria reglas de negocio.
+    """
+    from app.domain.value_objects.dataset import WriteResult
+
+    campos = set(WriteResult.__dataclass_fields__)
+
+    assert campos == {"content_hash", "bytes_written", "bar_count", "physical_location"}
+    assert not campos & {"provider", "version", "created_at", "dataset_id", "lineage"}
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("content_hash", "   "),
+        ("physical_location", ""),
+        ("bytes_written", -1),
+        ("bar_count", -1),
+    ],
+    ids=lambda v: str(v),
+)
+def test_write_result_rejects_unauditable_writes(campo: str, valor: object) -> None:
+    """Una escritura sin huella no es auditable y sin ubicacion no es localizable."""
+    from app.core.types import ContentHash
+    from app.domain.value_objects.dataset import WriteResult
+
+    base: dict[str, object] = {
+        "content_hash": ContentHash("abc123"),
+        "bytes_written": 100,
+        "bar_count": 10,
+        "physical_location": "/ruta/x.parquet",
+    }
+    base[campo] = valor
+
+    with pytest.raises(InvariantViolation):
+        WriteResult(**base)  # type: ignore[arg-type]

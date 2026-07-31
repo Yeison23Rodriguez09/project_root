@@ -1,1 +1,1 @@
-main: app.interfaces.cli, app.interfaces.cli.config_cmd, app.interfaces.cli.doctor_cmd, app.interfaces.cli.plugins_cmd, app.interfaces.cli.preflight_cmd, app.interfaces.cli.status_cmd
+main: app.interfaces.cli, app.interfaces.cli.config_cmd, app.interfaces.cli.doctor_cmd, app.interfaces.cli.download_cmd, app.interfaces.cli.plugins_cmd, app.interfaces.cli.preflight_cmd, app.interfaces.cli.status_cmd

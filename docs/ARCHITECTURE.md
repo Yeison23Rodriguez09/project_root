@@ -287,6 +287,7 @@ Un plugin solo ve: `app.core`, `app.domain`, `app.shared`. Nada mas.
 | [`ADR-0008`](../decisions/ADR-0008.toml) | accepted | 2026-07-28 | Platform | Monitoring depende de events: la arista que el propio contrato ya declaraba en prosa |
 | [`ADR-0009`](../decisions/ADR-0009.toml) | accepted | 2026-07-30 | Platform | El sello de los artefactos derivados no depende del tiempo fisico |
 | [`ADR-0010`](../decisions/ADR-0010.toml) | accepted | 2026-07-30 | Platform | El contrato de resultado se cierra antes de que exista el primer motor |
+| [`ADR-0011`](../decisions/ADR-0011.toml) | accepted | 2026-07-31 | Platform | La cadena de datos se parte en tres piezas que no se conocen entre si |
 
 ---
 

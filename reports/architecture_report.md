@@ -2,11 +2,11 @@
 
 Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **111**
-- Aristas entre paquetes: **17**
+- Modulos analizados: **122**
+- Aristas entre paquetes: **25**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **75**
+- Modulos huerfanos: **76**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -14,23 +14,23 @@ Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.t
 | Paquete | Nivel | Modulos | Dependencias |
 |---|---|---|---|
 | app.analytics | 3 | 1 | 0 |
-| app.application | 5 | 5 | 0 |
-| app.broker | 4 | 1 | 0 |
+| app.application | 5 | 9 | 5 |
+| app.broker | 4 | 2 | 2 |
 | app.config | 4 | 8 | 2 |
 | app.container | 5 | 6 | 4 |
 | app.core | 0 | 19 | 0 |
 | app.discovery | 3 | 14 | 0 |
-| app.domain | 1 | 14 | 1 |
+| app.domain | 1 | 15 | 1 |
 | app.events | 0 | 4 | 1 |
 | app.execution | 3 | 1 | 0 |
-| app.interfaces | 7 | 8 | 2 |
+| app.interfaces | 7 | 9 | 3 |
 | app.live | 6 | 1 | 0 |
 | app.monitoring | 4 | 4 | 2 |
 | app.optimization | 3 | 1 | 0 |
 | app.paper | 6 | 1 | 0 |
 | app.portfolio | 3 | 1 | 0 |
 | app.promotion | 3 | 6 | 0 |
-| app.research | 3 | 7 | 2 |
+| app.research | 3 | 11 | 2 |
 | app.shared | 2 | 2 | 2 |
 | app.storage | 4 | 4 | 1 |
 | app.validation | 3 | 1 | 0 |
@@ -50,6 +50,7 @@ _ninguno_
 - `app.application`
 - `app.application.backtest`
 - `app.application.discovery`
+- `app.application.download`
 - `app.application.live`
 - `app.application.promotion`
 - `app.broker`
@@ -90,6 +91,7 @@ _ninguno_
 - `app.interfaces.cli`
 - `app.interfaces.cli.config_cmd`
 - `app.interfaces.cli.doctor_cmd`
+- `app.interfaces.cli.download_cmd`
 - `app.interfaces.cli.plugins_cmd`
 - `app.interfaces.cli.preflight_cmd`
 - `app.interfaces.cli.status_cmd`
@@ -110,7 +112,6 @@ _ninguno_
 - `app.research`
 - `app.research.backtest`
 - `app.research.data`
-- `app.research.data.parquet_source`
 - `app.research.features`
 - `app.research.signals`
 - `app.research.strategies`
@@ -123,7 +124,7 @@ _ninguno_
 - `app.walkforward`
 ## Simbolos duplicados
 
-- `main: app.interfaces.cli, app.interfaces.cli.config_cmd, app.interfaces.cli.doctor_cmd, app.interfaces.cli.plugins_cmd, app.interfaces.cli.preflight_cmd, app.interfaces.cli.status_cmd`
+- `main: app.interfaces.cli, app.interfaces.cli.config_cmd, app.interfaces.cli.doctor_cmd, app.interfaces.cli.download_cmd, app.interfaces.cli.plugins_cmd, app.interfaces.cli.preflight_cmd, app.interfaces.cli.status_cmd`
 ---
 
 Un modulo huerfano no es necesariamente un error: los puntos de entrada y los modulos que solo se importan dinamicamente aparecen aqui. Lo que si es una senal es que crezcan entre dos consolidaciones.
