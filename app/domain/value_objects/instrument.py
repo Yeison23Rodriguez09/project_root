@@ -32,14 +32,31 @@ class CostModel:
         slippage_atr_multiple: Componente de slippage proporcional al ATR
             vigente. Modela que en regimenes volatiles el deslizamiento crece.
             Cero desactiva el componente.
+        financing_per_lot_per_day: Coste de mantener un lote abierto un dia, en
+            moneda de cuenta. **Puede ser negativo**: el carry a favor existe y
+            un modelo que lo prohiba solo puede representar el lado caro.
+
+            Es el cuarto componente y llego en ADR-0010. Los otros tres son
+            costes de CRUCE -se pagan al entrar y al salir-; este es coste de
+            TIEMPO, y por eso ninguno de ellos podia representarlo. Sin el,
+            `Trade.net_pnl` era optimista para toda estrategia mantenida entre
+            sesiones, de forma sistematica y silenciosa.
+
+            La forma del parametro -por lote y dia frente a puntos por noche,
+            y su asimetria entre largo y corto- se refinara cuando el adaptador
+            MT5 lea las condiciones reales del terminal. Se declara ahora con la
+            forma mas simple que representa el hecho, no con la definitiva.
     """
 
     commission_per_lot: float = 0.0
     spread_points: float = 0.0
     slippage_points: float = 0.0
     slippage_atr_multiple: float = 0.0
+    financing_per_lot_per_day: float = 0.0
 
     def __post_init__(self) -> None:
+        # `financing_per_lot_per_day` queda fuera a proposito: es el unico coste
+        # con signo. Incluirlo aqui prohibiria representar un carry favorable.
         for name in (
             "commission_per_lot",
             "spread_points",
@@ -56,6 +73,7 @@ class CostModel:
             "spread_points": self.spread_points,
             "slippage_points": self.slippage_points,
             "slippage_atr_multiple": self.slippage_atr_multiple,
+            "financing_per_lot_per_day": self.financing_per_lot_per_day,
         }
 
 

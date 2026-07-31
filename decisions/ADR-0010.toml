@@ -1,13 +1,21 @@
 id = "ADR-0010"
 title = "El contrato de resultado se cierra antes de que exista el primer motor"
-status = "proposed"
+status = "accepted"
 date = "2026-07-30"
 owner = "Platform"
 
 # Los consumidores del contrato, no los ficheros que cambian. `domain` es donde
-# vive; los otros cuatro son los motores que lo leeran y que hoy estan vacios.
-# Esa es exactamente la razon de hacerlo ahora.
-affected_packages = ["domain", "analytics", "walkforward", "discovery", "promotion"]
+# vive; los demas son los motores que lo leeran y que hoy estan vacios. Esa es
+# exactamente la razon de hacerlo ahora.
+affected_packages = [
+    "domain",
+    "config",
+    "analytics",
+    "walkforward",
+    "validation",
+    "discovery",
+    "promotion",
+]
 
 context = """
 El objetivo declarado es la cadena completa:
@@ -123,10 +131,54 @@ F. LAS INVARIANTES PROMETIDAS SE APLICAN, Y `cost_ratio` SE ALINEA CON
 G. `spread_cost` DECLARA SU CONVENCION: contiene el coste de AMBOS cruces,
    entrada y salida, que es lo que `CostModel` ya dice aplicar.
 
-Lo que este ADR NO hace: no implementa ningun calculo. `PerformanceMetrics`
-sigue siendo un contrato de datos y el calculo seguira viviendo en `analytics`,
-como su docstring declara desde el principio. Aqui solo se fija QUE se mide, con
-que unidades y donde vive cada cosa.
+H. SE FORMALIZA LA FAMILIA DE CONTRATOS DE EVIDENCIA.
+   No basta con declarar donde NO va WFE: hay que declarar donde SI va, o el
+   contrato aparecera de golpe en R6 con codigo ya encima. Se crean por tanto,
+   vacios de implementacion pero completos de forma:
+
+       StatisticalTestResult   estadistico, p-valor, veredicto
+       WalkForwardMetrics      folds, is_return, oos_return, wfe, stability
+       ValidationMetrics       walk_forward + tests + overfitting_score
+
+   La separacion es la que da sentido a todo el ADR:
+
+       PerformanceMetrics   COMO gano       retorno, Sharpe, drawdown, CAGR
+       ValidationMetrics    SI ES CREIBLE   walk-forward, pruebas estadisticas
+
+   Un unico objeto con las dos cosas invita a rankear por rentabilidad y mirar la
+   confianza despues, que es el orden inverso al que `SYSTEM_MODEL.md` exige:
+   "Promocion: no evalua rentabilidad, evalua confianza".
+
+   Tres decisiones de detalle, cada una forzada por algo que ya existia en el
+   proyecto y no por preferencia:
+
+   H.1 El fichero se llama `validation_metrics.py` y no `validation.py` porque
+       `app/core/validation.py` YA EXISTE con otro significado -`ValidationReport`
+       acumula violaciones de regla, no evidencia estadistica- y `validation.py`
+       no figura en `rules.duplicate_modules.allowed_repeats`. Un segundo modulo
+       con ese nombre rompe `test_no_duplicate_modules`. El choque de vocabulario
+       se anota: en este sistema "validacion" significa dos cosas, y conviene no
+       agravarlo.
+
+   H.2 `WalkForwardMetrics` NO lleva decision de promocion, aunque agrupar la
+       medida con el veredicto sea tentador. `PromotionPolicyPort.evaluate` ya
+       emite ese veredicto, y guardarlo aqui haria que el motor que MIDE cargue
+       la decision de quien DECIDE. Es la misma frontera que la matriz protege
+       manteniendo `promotion` fuera del `depends` de `discovery`, y la misma que
+       sostiene la decision C.
+
+   H.3 Las pruebas estadisticas viajan en un MAPA indexado por nombre, no como
+       campos fijos `pbo`, `reality_check`, `spa`. `StatisticalTestPort` se
+       diseno explicitamente para que "la capa de promocion pueda componer
+       pruebas heterogeneas SIN CONOCERLAS"; fijarlas como atributos obligaria a
+       tocar este tipo y la politica que lo lee cada vez que se anada una prueba.
+       `StatisticalTestResult` da ademas la forma que el puerto prometia en prosa
+       y tipaba como `Mapping[str, Any]`.
+
+Lo que este ADR NO hace: no implementa ningun calculo. `PerformanceMetrics` y
+`ValidationMetrics` siguen siendo contratos de datos y el calculo vivira en
+`analytics`, `walkforward` y `validation`, como sus docstrings declaran. Aqui
+solo se fija QUE se mide, con que unidades y donde vive cada cosa.
 """
 
 consequences = """
@@ -162,8 +214,11 @@ datos reales del terminal en lugar de por analogia.
 
 references = [
     "app/domain/value_objects/metrics.py",
+    "app/domain/value_objects/validation_metrics.py",
     "app/domain/entities/trade.py",
     "app/domain/value_objects/instrument.py",
+    "app/config/instruments.py",
+    "app/shared/ports.py",
     "app/core/types.py",
     "app/core/math.py",
     "configs/symbols/XAUUSD.toml",
@@ -186,15 +241,24 @@ Comprueba, sobre las invariantes y no sobre ejemplos:
   * las cuatro invariantes prometidas rechazan su violacion: `gross_loss`
     positivo, `max_drawdown_pct` fuera de [0,1], `profit_factor` negativo y la
     incoherencia entre `net_profit` y sus componentes;
-  * `cost_ratio` devuelve `None` con beneficio bruto cero, igual que
-    `profit_factor`, en lugar de lanzar `ZeroDivisionError`;
+  * `cost_ratio` ADMITE `None`, igual que `profit_factor`. Que lo DEVUELVA con
+    beneficio bruto cero es responsabilidad de `analytics`, que no existe; lo
+    que este ADR fija es que el contrato lo permita, para que el calculo no se
+    vea forzado a propagar un infinito;
   * un `PerformanceMetrics` no puede construirse sin declarar su timeframe y su
     numero de barras, que es lo que hace auditable la anualizacion;
-  * `PerformanceMetrics.empty()` sigue siendo construible y degenerado.
+  * `PerformanceMetrics.empty()` exige timeframe y sigue siendo degenerado.
 
-Se comprueba ademas que `wfe` NO es un campo de `PerformanceMetrics`: es una
-asercion sobre lo que el contrato NO contiene, y existe para que la decision C
-no se erosione anadiendo el campo "porque hacia falta en un sitio".
+Y dos aserciones sobre lo que los contratos NO contienen, que son las que
+impiden que las decisiones C y H.2 se erosionen "porque hacia falta en un sitio":
+que `wfe` no es campo de `PerformanceMetrics`, y que `WalkForwardMetrics` no
+lleva veredicto de promocion.
+
+Sobre la familia de evidencia se comprueba ademas que el mapa de pruebas es
+inmutable tras construirse, que su clave coincide con el nombre de la prueba,
+que admite pruebas que el tipo no conoce, y que un candidato SIN evaluar es
+distinguible de uno evaluado y malo: la primera situacion pide mas datos y la
+segunda se descarta, y confundirlas rechaza candidatos que nadie llego a medir.
 """
 
 [rollback]

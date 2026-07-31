@@ -52,6 +52,12 @@ COST_FIELDS: tuple[str, ...] = (
     "spread_points",
     "slippage_points",
     "slippage_atr_multiple",
+    # Cuarto componente desde ADR-0010, y el unico con signo: un carry favorable
+    # se representa en negativo. Aparece aqui y no solo en `CostModel` porque
+    # esta tupla es la que gobierna la construccion; un campo declarado en el
+    # TOML de un simbolo y ausente de esta lista se ignoraria en silencio, que
+    # es peor que no admitirlo.
+    "financing_per_lot_per_day",
 )
 
 

@@ -34,6 +34,7 @@ app.domain.services
 app.domain.value_objects
 app.domain.value_objects.money
 app.domain.value_objects.time_range
+app.domain.value_objects.validation_metrics
 app.events
 app.execution
 app.interfaces

@@ -2,11 +2,11 @@
 
 Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **109**
+- Modulos analizados: **110**
 - Aristas entre paquetes: **15**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **73**
+- Modulos huerfanos: **74**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -20,7 +20,7 @@ Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.t
 | app.container | 5 | 6 | 4 |
 | app.core | 0 | 19 | 0 |
 | app.discovery | 3 | 14 | 0 |
-| app.domain | 1 | 13 | 1 |
+| app.domain | 1 | 14 | 1 |
 | app.events | 0 | 4 | 1 |
 | app.execution | 3 | 1 | 0 |
 | app.interfaces | 7 | 8 | 2 |
@@ -82,6 +82,7 @@ _ninguno_
 - `app.domain.value_objects`
 - `app.domain.value_objects.money`
 - `app.domain.value_objects.time_range`
+- `app.domain.value_objects.validation_metrics`
 - `app.events`
 - `app.execution`
 - `app.interfaces`
