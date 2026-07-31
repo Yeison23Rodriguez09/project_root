@@ -62,6 +62,7 @@ app.promotion.ranking
 app.research
 app.research.backtest
 app.research.data
+app.research.data.parquet_source
 app.research.features
 app.research.signals
 app.research.strategies

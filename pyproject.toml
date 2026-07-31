@@ -330,6 +330,13 @@ module = [
 
     "yaml.*",
 
+    # `pyarrow` no publica `py.typed` ni stubs. Entra con el adaptador de
+    # historicos en Parquet, y solo se toca en la frontera: lo que cruza hacia
+    # dentro son arrays de numpy tipados, nunca un objeto de pyarrow. La
+    # supresion se limita por tanto al import y no debilita el analisis de nada
+    # que viaje por el dominio.
+    "pyarrow.*",
+
 ]
 
 ignore_missing_imports = true

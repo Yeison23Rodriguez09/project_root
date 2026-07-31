@@ -2,11 +2,11 @@
 
 Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **110**
-- Aristas entre paquetes: **15**
+- Modulos analizados: **111**
+- Aristas entre paquetes: **17**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **74**
+- Modulos huerfanos: **75**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -30,7 +30,7 @@ Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.t
 | app.paper | 6 | 1 | 0 |
 | app.portfolio | 3 | 1 | 0 |
 | app.promotion | 3 | 6 | 0 |
-| app.research | 3 | 6 | 0 |
+| app.research | 3 | 7 | 2 |
 | app.shared | 2 | 2 | 2 |
 | app.storage | 4 | 4 | 1 |
 | app.validation | 3 | 1 | 0 |
@@ -110,6 +110,7 @@ _ninguno_
 - `app.research`
 - `app.research.backtest`
 - `app.research.data`
+- `app.research.data.parquet_source`
 - `app.research.features`
 - `app.research.signals`
 - `app.research.strategies`
