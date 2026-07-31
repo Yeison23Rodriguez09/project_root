@@ -4,10 +4,8 @@ artifacts/**
 !artifacts/**/.gitkeep
 experiments/**
 !experiments/**/.gitkeep
-data/raw/**
-!data/raw/.gitkeep
-data/cache/**
-!data/cache/.gitkeep
+data/**
+!data/.gitkeep
 storage/zoo/**
 !storage/zoo/.gitkeep
 *.log
