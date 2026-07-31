@@ -534,6 +534,22 @@ class PromotionPolicyPort(Protocol):
 
 
 @runtime_checkable
+class StrategyFitterPort(Protocol):
+    """Ajusta un candidato sobre un tramo de datos y devuelve la variante.
+
+    Es lo que permite que walk-forward orqueste IS/OOS sin conocer al
+    optimizador: la matriz no deja que `walkforward` importe `optimization`, y
+    la direccion es la correcta -la validacion es una metodologia, no un motor
+    de busqueda-. Quien compone inyecta el ajustador.
+
+    Recibe BARRAS y no una huella de dataset: los tramos de un fold son rebanadas
+    en memoria, no series catalogadas.
+    """
+
+    def fit(self, spec: StrategySpec, bars: Bars, *, seed: int) -> StrategySpec: ...
+
+
+@runtime_checkable
 class ObjectivePort(Protocol):
     """Puntua un candidato sobre una serie. Mayor es mejor.
 
@@ -590,6 +606,7 @@ __all__ = [
     "SearchSpacePort",
     "SignalBlockFn",
     "StatisticalTestPort",
+    "StrategyFitterPort",
     "StrategyRepositoryPort",
     "TradeRepositoryPort",
 ]

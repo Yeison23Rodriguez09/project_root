@@ -206,9 +206,7 @@ def test_optimizing_something_already_validated_is_rejected(tmp_path: Path) -> N
     )
 
     with pytest.raises(InvariantViolation) as error:
-        _engine(catalog, PeriodObjective()).optimize(
-            validated, fingerprint, iterations=5, seed=1
-        )
+        _engine(catalog, PeriodObjective()).optimize(validated, fingerprint, iterations=5, seed=1)
 
     assert "candidatos" in str(error.value)
 
@@ -227,12 +225,30 @@ def test_the_score_is_named_as_in_sample() -> None:
 
 @pytest.mark.unit
 def test_the_engine_only_knows_ports() -> None:
+    """Toda dependencia del motor entra como Protocol, nunca como adaptador.
+
+    Se comprueba por anotacion y no por nombre exacto de parametros: lo que
+    importa es que ninguna colaboracion sea concreta, no que la lista sea
+    literalmente esta. Los escalares de ajuste no son dependencias y no cuentan.
+    """
     import inspect
 
-    parameters = set(inspect.signature(OptimizationEngine.__init__).parameters)
+    from app.shared import ports as contracts
 
-    assert parameters == {"self", "catalog", "space", "objective"}
-    assert not parameters & {"source", "broker", "terminal", "mt5"}
+    firma = inspect.signature(OptimizationEngine.__init__)
+    escalares = {"int", "float", "str", "bool"}
+    protocolos = {name for name in dir(contracts) if name.endswith("Port")}
+
+    dependencias = {
+        name: str(p.annotation)
+        for name, p in firma.parameters.items()
+        if name != "self" and str(p.annotation).split("|")[0].strip() not in escalares
+    }
+
+    assert dependencias, "el motor tiene que recibir sus colaboraciones"
+    for name, annotation in dependencias.items():
+        assert annotation in protocolos, f"{name} no entra por puerto: {annotation}"
+    assert not set(firma.parameters) & {"source", "broker", "terminal", "mt5"}
 
 
 # ---------------------------------------------------------------------------
@@ -303,9 +319,11 @@ def test_reordering_the_batch_does_not_change_any_result(tmp_path: Path) -> None
 def test_the_report_records_what_makes_it_reproducible(tmp_path: Path) -> None:
     catalog, fingerprint = _catalog(tmp_path)
 
-    volcado = _engine(catalog, PeriodObjective()).optimize(
-        _candidate(_space()), fingerprint, iterations=10, seed=77
-    ).to_dict()
+    volcado = (
+        _engine(catalog, PeriodObjective())
+        .optimize(_candidate(_space()), fingerprint, iterations=10, seed=77)
+        .to_dict()
+    )
 
     assert volcado["seed"] == 77
     assert volcado["dataset_fingerprint"] == fingerprint

@@ -28,6 +28,7 @@ from typing import Any
 from app.core.determinism import rng_for
 from app.core.exceptions import InvariantViolation
 from app.core.types import LifecycleState
+from app.domain.entities.bars import Bars
 from app.domain.value_objects.strategy_spec import StrategySpec
 from app.shared.ports import (
     DatasetRepositoryPort,
@@ -93,10 +94,12 @@ class OptimizationEngine:
         catalog: DatasetRepositoryPort,
         space: SearchSpacePort,
         objective: ObjectivePort,
+        fit_iterations: int = 25,
     ) -> None:
         self._catalog = catalog
         self._space = space
         self._objective = objective
+        self._fit_iterations = fit_iterations
 
     def optimize(
         self,
@@ -124,6 +127,44 @@ class OptimizationEngine:
             )
 
         bars = self._catalog.get(dataset_fingerprint)
+        return self._search(spec, bars, iterations=iterations, seed=seed, origin=dataset_fingerprint)
+
+    def optimize_on(
+        self,
+        spec: StrategySpec,
+        bars: Bars,
+        *,
+        iterations: int,
+        seed: int,
+    ) -> OptimizationResult:
+        """Ajusta sobre BARRAS ya en memoria, sin pasar por el catalogo.
+
+        Existe porque walk-forward optimiza sobre rebanadas de un fold, que no
+        son series catalogadas. Sin esta via, cada tramo de ajuste tendria que
+        registrarse como dataset propio, y el catalogo se llenaria de entradas
+        que no son datasets sino fragmentos de uno.
+        """
+        if iterations < 1:
+            raise InvariantViolation("Hay que dar al menos una iteracion", iterations=iterations)
+        if spec.state is not LifecycleState.CANDIDATE:
+            raise InvariantViolation("Solo se optimizan candidatos", state=str(spec.state))
+        return self._search(spec, bars, iterations=iterations, seed=seed, origin="")
+
+    def fit(self, spec: StrategySpec, bars: Bars, *, seed: int) -> StrategySpec:
+        """Cumple `StrategyFitterPort`: ajusta y devuelve solo la variante."""
+        return self.optimize_on(
+            spec, bars, iterations=self._fit_iterations, seed=seed
+        ).best
+
+    def _search(
+        self,
+        spec: StrategySpec,
+        bars: Bars,
+        *,
+        iterations: int,
+        seed: int,
+        origin: str,
+    ) -> OptimizationResult:
         rng = rng_for(seed, SEED_NAMESPACE, str(spec.strategy_id), iterations)
 
         baseline = float(self._objective.score(spec, bars))
@@ -149,7 +190,7 @@ class OptimizationEngine:
             baseline_score=baseline,
             evaluations=len(seen),
             seed=seed,
-            dataset_fingerprint=dataset_fingerprint,
+            dataset_fingerprint=origin,
         )
 
     def optimize_all(
