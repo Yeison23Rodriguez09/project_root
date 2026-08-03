@@ -30,8 +30,7 @@ def content_hash_of(bars: Bars) -> ContentHash:
             "symbol": str(bars.symbol),
             "timeframe": str(bars.timeframe),
             "columns": {
-                name: np.asarray(getattr(bars, name)).tobytes().hex()
-                for name in IDENTITY_COLUMNS
+                name: np.asarray(getattr(bars, name)).tobytes().hex() for name in IDENTITY_COLUMNS
             },
         }
     )

@@ -49,6 +49,7 @@ REQUIRED_COLUMNS: tuple[str, ...] = ("timestamp", "open", "high", "low", "close"
 #: Columna opcional, tratada aparte por lo anterior.
 OPTIONAL_COLUMNS: tuple[str, ...] = ("volume",)
 
+
 class ParquetMarketData:
     """Historicos en disco, segun la disposicion que se le inyecta.
 
@@ -112,9 +113,7 @@ class ParquetMarketData:
             low=self._column(columns, "low", path)[selected],
             close=self._column(columns, "close", path)[selected],
             volume=(
-                self._column(columns, "volume", path)[selected]
-                if "volume" in columns
-                else None
+                self._column(columns, "volume", path)[selected] if "volume" in columns else None
             ),
         )
 

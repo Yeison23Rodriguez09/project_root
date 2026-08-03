@@ -23,7 +23,9 @@ from app.domain.value_objects.strategy_spec import CombineMode
 from app.shared.ports import SearchSpacePort
 
 
-def _block(name: str, family: str, *, choices: tuple[Any, ...] = (7, 14, 21)) -> ComponentEntry[Any]:
+def _block(
+    name: str, family: str, *, choices: tuple[Any, ...] = (7, 14, 21)
+) -> ComponentEntry[Any]:
     return ComponentEntry(
         name=name,
         fn=lambda **_: None,
@@ -40,10 +42,14 @@ def _registry(*entries: ComponentEntry[Any]) -> Registry[Any]:
 
 
 def _space(*entries: ComponentEntry[Any], **kwargs: Any) -> BlockSearchSpace:
-    catalog = _registry(*entries) if entries else _registry(
-        _block("ema_cross", "trend"),
-        _block("rsi_reversion", "momentum"),
-        _block("atr_breakout", "volatility"),
+    catalog = (
+        _registry(*entries)
+        if entries
+        else _registry(
+            _block("ema_cross", "trend"),
+            _block("rsi_reversion", "momentum"),
+            _block("atr_breakout", "volatility"),
+        )
     )
     return BlockSearchSpace(
         symbol=Symbol("EURUSD"), timeframe=Timeframe.M15, entries=catalog, **kwargs
@@ -163,7 +169,7 @@ def test_an_empty_catalog_produces_nothing() -> None:
 
 @pytest.mark.unit
 def test_an_exhausted_space_returns_what_it_has() -> None:
-    """"Hasta `count`" y no "exactamente `count`".
+    """ "Hasta `count`" y no "exactamente `count`".
 
     Prometer un numero fijo obligaria a repetir estrategias o a girar
     indefinidamente, y ambas cosas mienten sobre la cobertura de la busqueda.
@@ -253,9 +259,7 @@ def test_mutation_changes_exactly_one_parameter() -> None:
     assert len(mutated.entries) == len(original.entries)
     assert [b.name for b in mutated.entries] == [b.name for b in original.entries]
     diferencias = sum(
-        1
-        for a, b in zip(original.entries, mutated.entries, strict=True)
-        if a.params != b.params
+        1 for a, b in zip(original.entries, mutated.entries, strict=True) if a.params != b.params
     )
     assert diferencias <= 1
 

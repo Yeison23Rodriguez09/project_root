@@ -41,11 +41,7 @@ def _write(
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    ts = (
-        np.arange(0, count * M15_NS, M15_NS, dtype=np.int64)
-        if timestamp is None
-        else timestamp
-    )
+    ts = np.arange(0, count * M15_NS, M15_NS, dtype=np.int64) if timestamp is None else timestamp
     close = np.linspace(1.1000, 1.1000 + 0.0001 * len(ts), len(ts))
     data: dict[str, np.ndarray] = {
         "timestamp": ts,

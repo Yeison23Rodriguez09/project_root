@@ -59,7 +59,11 @@ def _catalog(root: Path, bars: Bars) -> tuple[Any, str]:
 
 def _space(symbol: str = "EURUSD", timeframe: Timeframe = Timeframe.M15) -> BlockSearchSpace:
     registry: Registry[Any] = Registry("signal")
-    for name, family in (("ema_cross", "trend"), ("rsi_rev", "momentum"), ("atr_brk", "volatility")):
+    for name, family in (
+        ("ema_cross", "trend"),
+        ("rsi_rev", "momentum"),
+        ("atr_brk", "volatility"),
+    ):
         registry.add(
             ComponentEntry(
                 name=name,
@@ -109,9 +113,7 @@ def test_the_same_seed_and_dataset_reproduce_the_search(tmp_path: Path) -> None:
     first = engine.discover(fingerprint, count=10, seed=7)
     second = engine.discover(fingerprint, count=10, seed=7)
 
-    assert [s.strategy_id for s in first.candidates] == [
-        s.strategy_id for s in second.candidates
-    ]
+    assert [s.strategy_id for s in first.candidates] == [s.strategy_id for s in second.candidates]
 
 
 @pytest.mark.integration
@@ -142,13 +144,9 @@ def test_exhaustion_is_reported_not_hidden(tmp_path: Path) -> None:
             params=(ParamSpec(name="period", default=5, choices=(5,)),),
         )
     )
-    space = BlockSearchSpace(
-        symbol=Symbol("EURUSD"), timeframe=Timeframe.M15, entries=tiny
-    )
+    space = BlockSearchSpace(symbol=Symbol("EURUSD"), timeframe=Timeframe.M15, entries=tiny)
 
-    result = DiscoveryEngine(catalog=catalog, space=space).discover(
-        fingerprint, count=100, seed=3
-    )
+    result = DiscoveryEngine(catalog=catalog, space=space).discover(fingerprint, count=100, seed=3)
 
     assert result.exhausted
     assert 0 < len(result.candidates) < 100
@@ -267,9 +265,7 @@ def test_a_reprocessed_dataset_is_rejected(tmp_path: Path) -> None:
     from app.research.data.parquet_writer import ParquetMarketDataWriter
 
     catalog, fingerprint = _catalog(tmp_path, _bars())
-    ParquetMarketDataWriter(DatasetLayout(root=tmp_path)).write(
-        _bars(count=45), overwrite=True
-    )
+    ParquetMarketDataWriter(DatasetLayout(root=tmp_path)).write(_bars(count=45), overwrite=True)
     engine = DiscoveryEngine(catalog=catalog, space=_space())
 
     with pytest.raises(DataSourceError):

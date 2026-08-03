@@ -1,0 +1,175 @@
+id = "ADR-0016"
+title = "La semilla de cada fold se deriva, no se suma"
+status = "accepted"
+date = "2026-08-03"
+owner = "Research"
+
+affected_packages = ["walkforward", "core", "optimization"]
+
+context = """
+`configs/delivery.toml` marca `deterministic` como criterio BLOQUEANTE y dice
+como se verifica: doble ejecucion con la misma semilla, comparacion bit a bit.
+La capacidad `Validation` no lo declaraba cumplido, y el motivo estaba escrito en
+su propia fila: `tests/test_walkforward.py` pasaba `seed` a todas sus corridas y
+NUNCA comprobaba que dos ejecuciones coincidieran.
+
+Al escribir esa verificacion aparecio el defecto que la ausencia tapaba. El
+motor derivaba la semilla de cada fold sumando su indice:
+
+    fitted = self._fitter.fit(spec, in_sample, seed=seed + fold.index)
+
+Con esa aritmetica, el fold 1 de la corrida con semilla 1 recibe la semilla 2, y
+tambien la recibe el fold 0 de la corrida con semilla 2. Dos experimentos que se
+presentan como independientes comparten camino de exploracion en la mitad de sus
+folds.
+
+Es un defecto de VALIDEZ CIENTIFICA, no de ejecucion. No rompe nada visible: las
+dos corridas terminan, producen numeros plausibles y son reproducibles cada una
+por su lado. Lo que se degrada es el significado de agregar sus resultados. Si
+alguien repite un walk-forward con semillas 1, 2 y 3 para comprobar que la
+evidencia no depende del azar, esas tres corridas comparten dos tercios de sus
+caminos de busqueda y la coincidencia que encuentre sera en parte un artefacto.
+
+El nucleo ya tenia la herramienta correcta y no se estaba usando.
+`core.determinism.derive_seed` declara en su contrato tres propiedades -misma
+entrada, misma semilla; namespaces distintos, semillas no correlacionadas; anadir
+un consumidor no altera a los existentes- y su docstring nombra literalmente
+"numero de fold" como ejemplo de coordenada.
+"""
+
+decision = """
+A. La semilla de cada fold se deriva con `derive_seed(seed, namespace, indice)`.
+
+   Ningun consumidor de aleatoriedad de la plataforma vuelve a componer semillas
+   con aritmetica. La suma es tentadora porque parece inofensiva y produce
+   valores distintos DENTRO de una corrida; lo que no produce es independencia
+   ENTRE corridas, que es la propiedad que hace valer una repeticion.
+
+B. El namespace se declara como constante del modulo, `FOLD_SEED_NAMESPACE`, y
+   no en linea.
+
+   Cambiarlo invalida la reproducibilidad de toda corrida anterior: la misma
+   semilla maestra dejaria de producir las mismas variantes. Es un dato de
+   contrato y debe verse en el diff como tal, no como un renombrado de
+   conveniencia. Un test fija su valor por ese motivo.
+
+C. El determinismo de walk-forward se verifica con el ajustador REAL.
+
+   `RecordingFitter` devuelve el spec sin tocarlo y no consume el generador ni
+   una vez: una comprobacion de determinismo sobre el no prueba nada, porque no
+   hay azar que romper. El unico camino con aleatoriedad del flujo es el
+   optimizador, que muta parametros con `rng_for`, y es el que se inyecta.
+
+   La comparacion es del volcado COMPLETO y no de las metricas agregadas: dos
+   corridas podrian promediar igual habiendo ajustado variantes distintas en cada
+   fold, y ese caso es peor que una discrepancia visible porque la evidencia
+   parece reproducible mientras no lo es.
+
+D. El reciproco se comprueba sobre el contrato del MOTOR -que cada fold reciba
+   una semilla propia y que dos corridas contiguas no compartan ninguna- y no
+   sobre el resultado de la busqueda.
+
+   Se intento primero lo segundo -tres semillas deben ajustar variantes
+   distintas- y estaba mal planteado: con un espacio pequeno y suficientes
+   iteraciones, el ascenso converge al mismo optimo desde cualquier semilla, de
+   modo que el test fallaba sin que hubiera defecto alguno. Que la semilla llega
+   al generador ya lo verifican `test_optimization_engine.py` y
+   `test_discovery_engine.py`, que es donde corresponde.
+"""
+
+consequences = """
+Se gana que repetir un walk-forward con semillas distintas signifique lo que
+aparenta: caminos de busqueda no correlacionados, y por tanto una coincidencia
+entre corridas que es evidencia y no un artefacto del generador.
+
+Se gana ademas el criterio `deterministic` para la capacidad `Validation`, que
+era el ultimo que le faltaba de los que dependen del codigo.
+
+Se paga con una discontinuidad: las corridas de walk-forward ANTERIORES a este
+commit no son reproducibles con el codigo actual. La misma semilla maestra
+produce ahora otras variantes. No se migra nada -no hay corrida archivada: el
+motor no tiene todavia runner ni comando- pero la ruptura queda registrada por si
+alguien encuentra un resultado guardado de una sesion de desarrollo.
+
+Lo que este ADR NO toca: `optimization` y `discovery` ya derivaban correctamente
+con `rng_for`, que internamente usa `derive_seed`. El defecto estaba solo en la
+composicion que hacia `walkforward` antes de llamar al ajustador.
+"""
+
+references = [
+    "app/walkforward/engine.py",
+    "app/core/determinism.py",
+    "tests/test_walkforward.py",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_walkforward.py::test_seeds_of_adjacent_runs_do_not_collide"
+description = """
+Cuatro comprobaciones nuevas, cada una sobre una parte de la decision:
+
+  * `test_two_runs_with_the_same_seed_are_identical` compara el volcado completo
+    de dos corridas con el ajustador real -C-;
+  * `test_each_fold_receives_its_own_seed` impide que un motor que pasara la
+    misma semilla a todos los folds siguiera pareciendo reproducible -D-;
+  * `test_seeds_of_adjacent_runs_do_not_collide` es la que fija el defecto: dos
+    corridas con semillas 1 y 2 no comparten ninguna semilla derivada -A-;
+  * `test_the_fold_seed_namespace_is_part_of_the_contract` fija el valor del
+    namespace para que cambiarlo sea visible -B-.
+
+Verificado por MUTACION, que es lo que distingue un test que comprueba de uno
+que acompana. Las tres mutaciones caen:
+
+    volver a `seed + fold.index`            -> 1 test rojo
+    misma semilla para todos los folds      -> 1 test rojo
+    ignorar la semilla maestra              -> 1 test rojo
+"""
+
+[rollback]
+description = """
+`git revert` del commit. El motor vuelve a sumar y `Validation` pierde el
+criterio `deterministic`, que dejaria de estar respaldado.
+
+Revertir NO es aconsejable aunque sea trivial: devolveria la correlacion entre
+corridas, que es un defecto de validez cientifica y no una preferencia de
+diseno. Si alguna vez hiciera falta reproducir una corrida anterior al cambio,
+el camino correcto es leer el namespace y la funcion de derivacion del artefacto
+-que las declara- y no revertir el motor.
+"""
+effort = "diez minutos"
+
+[[alternatives]]
+option = "Dejar la suma y documentar la correlacion"
+rejected_because = """
+Documentar un defecto no lo convierte en una decision. La correlacion entre
+corridas no tiene ninguna ventaja -no es mas rapida, ni mas simple de leer- y su
+unico efecto es hacer que repetir un experimento signifique menos de lo que
+parece.
+
+Un lector que vea `seed + fold.index` asumira independencia, porque es lo que la
+expresion sugiere. Una nota al pie no cambia esa lectura.
+"""
+
+[[alternatives]]
+option = "Derivar con `rng_for` en lugar de `derive_seed`"
+rejected_because = """
+`rng_for` devuelve un generador, y lo que el puerto `StrategyFitterPort` declara
+recibir es un ENTERO. Pasar un generador obligaria a cambiar la firma del puerto
+y con ella a todos sus implementadores, para acabar en el mismo sitio:
+`rng_for` usa `derive_seed` internamente.
+
+El ajustador debe poder derivar sus propios generadores a partir de la semilla
+que recibe, que es lo que hace hoy el optimizador.
+"""
+
+[[alternatives]]
+option = "Una semilla independiente por fold, pasada desde fuera"
+rejected_because = """
+Traslada el problema al llamante y multiplica por N las cosas que hay que anotar
+para reproducir una corrida. Hoy basta con la semilla maestra; con una lista, el
+artefacto tendria que guardar las N y cualquier corrida con distinto numero de
+folds dejaria de ser comparable.
+
+La derivacion existe precisamente para que UNA semilla genere un arbol
+reproducible de semillas hijas.
+"""

@@ -254,6 +254,13 @@ class ExecutionSimulatorPort(Protocol):
     fragilidad de la estrategia frente a la calidad de ejecucion.
     """
 
+    @property
+    def name(self) -> str:
+        """Identidad del modelo: sin ella, dos corridas iguales bajo supuestos
+        de ejecucion distintos dan numeros distintos y el artefacto no explica
+        por que (ADR-0013)."""
+        ...
+
     def fill_price(
         self,
         *,
@@ -373,7 +380,9 @@ class ConfigurationRepositoryPort(Protocol):
     con que valores.
     """
 
-    def save(self, run_id: RunId, *, effective: Mapping[str, Any], trace: Mapping[str, Any]) -> str: ...
+    def save(
+        self, run_id: RunId, *, effective: Mapping[str, Any], trace: Mapping[str, Any]
+    ) -> str: ...
 
     def get(self, run_id: RunId) -> Mapping[str, Any]: ...
 
@@ -419,7 +428,9 @@ class StrategyRepositoryPort(Protocol):
     una senal de alarma valiosa.
     """
 
-    def save(self, spec: StrategySpec, metrics: PerformanceMetrics, evidence: Mapping[str, Any]) -> None: ...
+    def save(
+        self, spec: StrategySpec, metrics: PerformanceMetrics, evidence: Mapping[str, Any]
+    ) -> None: ...
 
     def get(self, strategy_id: StrategyId) -> StrategySpec: ...
 

@@ -136,9 +136,7 @@ class PerformanceMetrics:
                 "profit_factor no puede ser negativo", profit_factor=self.profit_factor
             )
         if self.cost_ratio is not None and self.cost_ratio < 0:
-            raise InvariantViolation(
-                "cost_ratio no puede ser negativo", cost_ratio=self.cost_ratio
-            )
+            raise InvariantViolation("cost_ratio no puede ser negativo", cost_ratio=self.cost_ratio)
 
     @classmethod
     def empty(cls, timeframe: Timeframe, *, bars: int = 0) -> PerformanceMetrics:

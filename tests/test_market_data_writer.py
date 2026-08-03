@@ -42,9 +42,7 @@ def _bars(symbol: str = "EURUSD", *, count: int = 10, base: float = 1.10) -> Bar
 
 @pytest.mark.unit
 def test_the_writer_satisfies_the_port(tmp_path: Path) -> None:
-    assert isinstance(
-        ParquetMarketDataWriter(DatasetLayout(root=tmp_path)), MarketDataWriterPort
-    )
+    assert isinstance(ParquetMarketDataWriter(DatasetLayout(root=tmp_path)), MarketDataWriterPort)
 
 
 @pytest.mark.integration

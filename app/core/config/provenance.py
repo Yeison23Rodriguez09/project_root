@@ -46,16 +46,16 @@ class Priority(IntEnum):
     de todo el sistema en un commit aparentemente inocuo.
     """
 
-    CODE_DEFAULT = 0        # valor por defecto del esquema
-    GLOBAL_FILE = 10        # configs/global.toml
-    PROFILE_FILE = 20       # configs/profiles/<perfil>.toml
-    SYMBOL_FILE = 30        # configs/symbols/<simbolo>.toml
-    TIMEFRAME_FILE = 40     # configs/timeframes/<tf>.toml
-    STRATEGY_FILE = 50      # configs/strategies/<id>.toml
-    LOCAL_FILE = 60         # configs/local.toml, no versionado
-    ENVIRONMENT = 70        # variables QP_*
-    COMMAND_LINE = 80       # argumentos explicitos
-    RUNTIME_OVERRIDE = 90   # inyeccion en tests y en discovery
+    CODE_DEFAULT = 0  # valor por defecto del esquema
+    GLOBAL_FILE = 10  # configs/global.toml
+    PROFILE_FILE = 20  # configs/profiles/<perfil>.toml
+    SYMBOL_FILE = 30  # configs/symbols/<simbolo>.toml
+    TIMEFRAME_FILE = 40  # configs/timeframes/<tf>.toml
+    STRATEGY_FILE = 50  # configs/strategies/<id>.toml
+    LOCAL_FILE = 60  # configs/local.toml, no versionado
+    ENVIRONMENT = 70  # variables QP_*
+    COMMAND_LINE = 80  # argumentos explicitos
+    RUNTIME_OVERRIDE = 90  # inyeccion en tests y en discovery
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,9 +163,7 @@ class ResolvedValue:
             "checksum": self.checksum,
             "origin": self.origin.to_dict(),
             "resolved_at": self.resolved_at,
-            "history": [
-                {"value": v, "origin": o.to_dict()} for v, o in self.history
-            ],
+            "history": [{"value": v, "origin": o.to_dict()} for v, o in self.history],
         }
 
 

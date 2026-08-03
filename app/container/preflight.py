@@ -127,9 +127,7 @@ class Preflight:
             self._check_determinism_requirements()
             if effective_config is not None:
                 self._check_config_is_frozen(effective_config)
-        return PreflightResult(
-            report=self._report, mode=self._mode, checks_run=tuple(self._checks)
-        )
+        return PreflightResult(report=self._report, mode=self._mode, checks_run=tuple(self._checks))
 
     # -- comprobaciones ------------------------------------------------------
 

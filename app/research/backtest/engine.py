@@ -2,7 +2,8 @@
 
     Bars -> FeatureFrame -> CompiledStrategy -> llenado -> posiciones -> trades
 
-La regla que ordena todo el bucle es la causalidad declarada en ADR-0003: la
+La regla que ordena todo el bucle es la causalidad que declara
+`configs/architecture.toml` en `behavior.causal_features_only` (P1): la
 decision de la barra `i` se toma en su CIERRE, asi que la orden que produce se
 llena en la apertura de `i+1`. Ejecutar en la misma barra que decide es la
 segunda mentira mas comun de un backtest -despues de resolver a favor del

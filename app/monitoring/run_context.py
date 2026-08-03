@@ -88,9 +88,7 @@ def derive_run_id(*, config_hash: str, code: str, seed: int, at_ns: TimestampNs)
     modo determinista `at_ns` es fijo y el identificador tambien.
     """
     return RunId(
-        stable_hash(
-            {"config": config_hash, "code": code, "seed": int(seed), "at_ns": int(at_ns)}
-        )
+        stable_hash({"config": config_hash, "code": code, "seed": int(seed), "at_ns": int(at_ns)})
     )
 
 

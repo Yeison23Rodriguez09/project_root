@@ -193,7 +193,7 @@ class RuntimeMetrics:
             "distinct_events": len(self.by_event),
             "span_ns": self.span_ns,
             "subscribed": self._subscribed,
-        "phase": self.phase,
+            "phase": self.phase,
             "by_event": dict(sorted(self.by_event.items())),
             "by_source": dict(sorted(self.by_source.items())),
             "by_run": dict(sorted(self.by_run.items())),

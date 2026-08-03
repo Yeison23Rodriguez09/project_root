@@ -146,9 +146,7 @@ def test_missing_symbol_lists_what_is_available(catalog: TomlInstrumentCatalog) 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("omitted", REQUIRED_FIELDS)
-def test_an_incomplete_specification_fails_at_startup(
-    tmp_path: Path, omitted: str
-) -> None:
+def test_an_incomplete_specification_fails_at_startup(tmp_path: Path, omitted: str) -> None:
     """Carga ansiosa: un campo ausente rompe al arrancar, no en la barra 4000.
 
     Ninguno admite valor por defecto. Un `value_per_point_per_lot` asumido
@@ -175,7 +173,7 @@ def test_an_incomplete_specification_fails_at_startup(
 
 @pytest.mark.unit
 def test_an_unreadable_specification_names_the_file(tmp_path: Path) -> None:
-    """"min_lot invalido" sin decir en cual de veinte simbolos no ayuda a nadie."""
+    """ "min_lot invalido" sin decir en cual de veinte simbolos no ayuda a nadie."""
     (tmp_path / "ROTO.toml").write_text("[[[ no es toml", encoding="utf-8")
     with pytest.raises(ConfigValidationError) as raised:
         TomlInstrumentCatalog(tmp_path)

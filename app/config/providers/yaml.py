@@ -33,9 +33,7 @@ class YamlFileProvider:
     mas frustrantes de depuracion que existen.
     """
 
-    def __init__(
-        self, path: Path | str, priority: Priority, *, required: bool = False
-    ) -> None:
+    def __init__(self, path: Path | str, priority: Priority, *, required: bool = False) -> None:
         self._path = Path(path)
         self._priority = priority
         self._required = required

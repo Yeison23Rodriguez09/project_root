@@ -79,9 +79,7 @@ class DatasetLayout:
         folder = self.root / str(symbol)
         if not folder.is_dir():
             return ()
-        return tuple(
-            sorted(path.stem for path in folder.glob(f"*{self.suffix}") if path.is_file())
-        )
+        return tuple(sorted(path.stem for path in folder.glob(f"*{self.suffix}") if path.is_file()))
 
 
 __all__ = ["SUFFIX", "DatasetLayout"]

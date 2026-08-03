@@ -141,9 +141,9 @@ def fingerprint(
     """
     values = source.flat() if isinstance(source, ResolutionTrace) else dict(source)
     normalized = normalize(values, exclude=exclude)
-    payload = canonical_json(
-        {"schema_version": SCHEMA_VERSION, "config": normalized}
-    ).encode("utf-8")
+    payload = canonical_json({"schema_version": SCHEMA_VERSION, "config": normalized}).encode(
+        "utf-8"
+    )
     return ConfigFingerprint(
         digest=hashlib.sha256(payload).hexdigest(),
         n_keys=len(normalized),

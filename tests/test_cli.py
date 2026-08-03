@@ -41,6 +41,11 @@ ENTRY = ROOT / "main.py"
 EXPECTED_EXIT: dict[str, int] = {
     "--help": 0,
     "version": 0,
+    # Mismo criterio que `download`: sin `--strategy` ni `--dataset` la
+    # invocacion es incorrecta y argparse la rechaza antes de componer nada. El
+    # recorrido real se ejercita en `test_backtest_flow.py`, que si le da una
+    # serie registrada.
+    "backtest": 2,
     "doctor": 0,
     # Sin argumentos obligatorios es USO INCORRECTO, no fallo del comando:
     # argparse rechaza la invocacion antes de tocar nada. La descarga real se

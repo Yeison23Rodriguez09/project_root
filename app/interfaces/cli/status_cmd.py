@@ -78,11 +78,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         for name, state in capabilities.items():
             out.write(f"  {name:<16}{_MARKS.get(state, state)}\n")
 
-    missing = [
-        name
-        for name in _REQUIRED_FOR_DISCOVERY
-        if capabilities.get(name) != "ready"
-    ]
+    missing = [name for name in _REQUIRED_FOR_DISCOVERY if capabilities.get(name) != "ready"]
     out.write("\n")
     if missing:
         out.write("Overall.........NOT READY FOR DISCOVERY\n")

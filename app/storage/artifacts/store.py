@@ -101,9 +101,7 @@ class FileArtifactStore:
         """
         target = self._resolve(relative_path)
         if not target.is_file():
-            raise StorageError(
-                "El artefacto no existe", path=relative_path, root=str(self._root)
-            )
+            raise StorageError("El artefacto no existe", path=relative_path, root=str(self._root))
         try:
             loaded = orjson.loads(target.read_bytes())
         except orjson.JSONDecodeError as exc:

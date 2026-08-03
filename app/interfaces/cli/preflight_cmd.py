@@ -80,8 +80,7 @@ def _render(result: PreflightResult, plugins: int, config_error: str | None) -> 
     lines += [f"  {OK if result.ok else FAIL} {n.replace('_', ' ')}" for n in result.checks_run]
 
     findings = [
-        f"      {issue.severity.name:<8} {issue.code}: {issue.message}"
-        for issue in result.report
+        f"      {issue.severity.name:<8} {issue.code}: {issue.message}" for issue in result.report
     ]
     if findings:
         lines.append("")

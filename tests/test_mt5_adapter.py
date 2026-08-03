@@ -277,11 +277,15 @@ def test_the_end_of_range_never_comes_from_the_clock() -> None:
     fake = _terminal()
     adapter = MT5MarketDataAdapter(terminal=fake)
 
-    adapter.load(Symbol("EURUSD"), Timeframe.M15, start_ns=TimestampNs(1_700_000_000 * NS_PER_SECOND))
+    adapter.load(
+        Symbol("EURUSD"), Timeframe.M15, start_ns=TimestampNs(1_700_000_000 * NS_PER_SECOND)
+    )
     first_end = fake.arguments_of("copy_rates_range")[3]
 
     fake.calls.clear()
-    adapter.load(Symbol("EURUSD"), Timeframe.M15, start_ns=TimestampNs(1_700_000_000 * NS_PER_SECOND))
+    adapter.load(
+        Symbol("EURUSD"), Timeframe.M15, start_ns=TimestampNs(1_700_000_000 * NS_PER_SECOND)
+    )
     second_end = fake.arguments_of("copy_rates_range")[3]
 
     assert first_end == second_end

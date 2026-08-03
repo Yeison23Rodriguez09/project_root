@@ -392,3 +392,177 @@ def test_the_run_is_auditable_fold_by_fold(tmp_path: Path) -> None:
     assert len(volcado["folds"]) == 3
     assert volcado["metrics"]["folds"] == 3
     assert volcado["folds"][0]["fold"]["purge_ns"] == 5 * STEP
+
+
+# ---------------------------------------------------------------------------
+# Determinismo
+#
+# `configs/delivery.toml` marca `deterministic` como criterio BLOQUEANTE y dice
+# como se verifica: doble ejecucion con la misma semilla, comparacion bit a bit.
+# Hasta ahora este fichero pasaba `seed` a todas sus corridas y no comprobaba
+# nunca que dos ejecuciones coincidieran, de modo que la capacidad `Validation`
+# no podia declarar el criterio cumplido -y no lo declaraba-.
+#
+# Se verifica con el ajustador REAL y no con `RecordingFitter`. El doble devuelve
+# el spec sin tocarlo y no consume una sola vez el generador: una comprobacion de
+# determinismo sobre el no prueba nada, porque no hay azar que romper. El unico
+# camino con aleatoriedad es el optimizador, que muta parametros con `rng_for`.
+# ---------------------------------------------------------------------------
+
+
+def _real_fitter() -> Any:
+    """Optimizador real como ajustador. Es el unico camino con azar del flujo.
+
+    `walkforward` no puede importar `optimization` -la matriz lo prohibe y la
+    direccion es la correcta: la validacion es una metodologia, no un motor de
+    busqueda-. Quien compone los inyecta, y un test es exactamente eso.
+    """
+    from app.core.registry.params import ParamSpec
+    from app.core.registry.registry import ComponentEntry, Registry
+    from app.discovery.generator.search_space import BlockSearchSpace
+    from app.optimization.engine import OptimizationEngine
+
+    registry: Registry[Any] = Registry("signal")
+    for name, family in (("ema", "trend"), ("rsi", "momentum")):
+        registry.add(
+            ComponentEntry(
+                name=name,
+                fn=lambda **_: None,
+                tags=frozenset({family}),
+                params=(ParamSpec(name="period", default=14, choices=(7, 14, 21, 28)),),
+            )
+        )
+    space = BlockSearchSpace(symbol=Symbol("EURUSD"), timeframe=Timeframe.M15, entries=registry)
+    return OptimizationEngine(catalog=_NullCatalog(), space=space, objective=_RuggedObjective())
+
+
+class _RuggedObjective:
+    """Puntua por el CONTENIDO del spec, con un paisaje accidentado.
+
+    Existe porque `LengthObjective` no sirve para esto: puntua por numero de
+    barras, de modo que todas las variantes de un mismo fold empatan, el ascenso
+    nunca acepta una mutacion y el ajustador devuelve siempre el spec inicial.
+    Un test de determinismo sobre eso pasaria sin haber ejercitado una sola
+    decision aleatoria -y el reciproco, con tres semillas, fallaria por la razon
+    equivocada-. Fue exactamente lo que ocurrio al escribirlo.
+
+    El paisaje es accidentado a proposito: con un objetivo monotono -a mayor
+    periodo, mejor- toda semilla converge al mismo optimo y las tres corridas
+    vuelven a coincidir sin que eso diga nada del generador.
+
+    Determinista pese a su aspecto: el mismo spec siempre puntua igual, porque
+    `stable_hash` opera sobre la forma canonica.
+    """
+
+    def score(self, spec: StrategySpec, bars: Bars) -> float:
+        from app.core.determinism import stable_hash
+
+        rugged = int(str(stable_hash(spec.canonical()))[:8], 16) % 1_000
+        return float(rugged) + len(bars) * 1e-6
+
+
+class _NullCatalog:
+    """Catalogo que el optimizador no usa: se le pasan barras, no huellas."""
+
+    def register(self, bars: Bars, *, lineage: Any) -> str:
+        raise NotImplementedError
+
+    def get(self, fingerprint: str) -> Bars:
+        raise NotImplementedError
+
+    def lineage(self, fingerprint: str) -> Any:
+        raise NotImplementedError
+
+    def exists(self, fingerprint: str) -> bool:
+        return False
+
+
+@pytest.mark.integration
+def test_two_runs_with_the_same_seed_are_identical(tmp_path: Path) -> None:
+    """Misma serie, misma semilla, mismo resultado. Bit a bit (P1).
+
+    Se compara el volcado COMPLETO y no solo las metricas agregadas: dos
+    corridas podrian promediar igual habiendo ajustado variantes distintas en
+    cada fold, y ese caso es peor que una discrepancia visible porque la
+    evidencia parece reproducible mientras no lo es.
+    """
+    catalog, fingerprint = _catalog(tmp_path, _bars())
+
+    def once() -> dict[str, Any]:
+        engine = WalkForwardEngine(
+            catalog=catalog, fitter=_real_fitter(), objective=_RuggedObjective()
+        )
+        return engine.run(
+            _spec(), fingerprint, folds=3, is_bars=500, oos_bars=200, purge_bars=5, seed=11
+        ).to_dict()
+
+    assert once() == once()
+
+
+class SeedRecordingFitter:
+    """Ajustador que anota la semilla que recibio en cada fold."""
+
+    def __init__(self) -> None:
+        self.seeds: list[int] = []
+
+    def fit(self, spec: StrategySpec, bars: Bars, *, seed: int) -> StrategySpec:
+        self.seeds.append(seed)
+        return spec
+
+
+def _fold_seeds(root: Path, *, seed: int, folds: int = 3) -> list[int]:
+    catalog, fingerprint = _catalog(root, _bars())
+    fitter = SeedRecordingFitter()
+    engine = WalkForwardEngine(catalog=catalog, fitter=fitter, objective=LengthObjective())
+    engine.run(_spec(), fingerprint, folds=folds, is_bars=500, oos_bars=200, seed=seed)
+    return fitter.seeds
+
+
+@pytest.mark.integration
+def test_each_fold_receives_its_own_seed(tmp_path: Path) -> None:
+    """Cada fold explora con su propia semilla y ninguna se repite.
+
+    El reciproco del test anterior. Sin el, un motor que pasara la misma semilla
+    a todos los folds -o ninguna- seguiria siendo reproducible, y el
+    determinismo seria el de una constante.
+    """
+    seeds = _fold_seeds(tmp_path, seed=7)
+
+    assert len(seeds) == 3
+    assert len(set(seeds)) == 3, f"Dos folds compartieron semilla: {seeds}"
+
+
+@pytest.mark.integration
+def test_seeds_of_adjacent_runs_do_not_collide(tmp_path: Path) -> None:
+    """Dos corridas con semillas contiguas no comparten camino de exploracion.
+
+    Es el defecto que este test existe para impedir, y es del tipo que no rompe
+    nada visible. El motor derivaba la semilla de cada fold SUMANDO su indice, de
+    modo que el fold 1 de la corrida con semilla 1 exploraba exactamente igual
+    que el fold 0 de la corrida con semilla 2. Dos experimentos presentados como
+    independientes compartian la mitad de sus caminos de busqueda, y la
+    evidencia agregada parecia mas robusta de lo que era.
+
+    `core.determinism.derive_seed` existe justo para esto -su contrato nombra
+    "numero de fold" como coordenada- y garantiza que coordenadas distintas
+    produzcan semillas no correlacionadas.
+    """
+    first = _fold_seeds(tmp_path / "a", seed=1)
+    second = _fold_seeds(tmp_path / "b", seed=2)
+
+    assert not set(first) & set(second), (
+        f"Corridas con semillas contiguas comparten generador: {first} vs {second}"
+    )
+
+
+@pytest.mark.unit
+def test_the_fold_seed_namespace_is_part_of_the_contract() -> None:
+    """Cambiar el namespace invalida la reproducibilidad de todo lo anterior.
+
+    Se fija su valor para que modificarlo sea una decision visible en el diff y
+    no un renombrado de conveniencia: la misma semilla maestra dejaria de
+    producir las mismas variantes en cualquier corrida ya archivada.
+    """
+    from app.walkforward.engine import FOLD_SEED_NAMESPACE
+
+    assert FOLD_SEED_NAMESPACE == "walkforward.fold"

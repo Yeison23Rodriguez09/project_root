@@ -79,9 +79,7 @@ class Recorder:
         cruzar timestamps a mano.
         """
         return [
-            e
-            for e in self.events
-            if e.meta is not None and e.meta.correlation_id == correlation_id
+            e for e in self.events if e.meta is not None and e.meta.correlation_id == correlation_id
         ]
 
     def counts(self) -> dict[str, int]:

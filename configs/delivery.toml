@@ -18,16 +18,53 @@
 ###############################################################################
 
 [meta]
-version = 1
-phase = "3 - Platform Foundation"
+version = 2
+phase = "4 - Motor cuantitativo"
 phase_rule = """
-La Fase 4 no se abre hasta que TODAS las capacidades de plataforma esten en
-estado `ready`. Sin indicadores, sin broker, sin estrategias, sin backtest.
+La Fase 4 esta ABIERTA con la Fase 3 en `in_progress`, por decision registrada
+en ADR-0012. Antes de esa decision este campo declaraba la Fase 3 y prohibia
+abrir la 4 hasta que toda capacidad de plataforma estuviera `ready`; ocho
+commits de motores la habian abierto de hecho sin que nada lo registrara.
 
-El motivo es el fallo concreto del proyecto anterior: estrategias, discovery,
-zoo, optimizacion, MT5, live, runtime, configuracion y arquitectura evolucionaron
-a la vez, y los acoplamientos que eso genero resultaron imposibles de deshacer.
-La estructura debe impedir que se repita, no confiar en que no se repita.
+Lo que la regla original protege sigue vigente y NO se ha relajado: el fallo del
+proyecto anterior fue que estrategias, discovery, zoo, optimizacion, MT5, live,
+runtime, configuracion y arquitectura evolucionaron A LA VEZ, y los
+acoplamientos que eso genero resultaron imposibles de deshacer. Aqui la
+arquitectura lleva congelada desde `architecture-baseline` y ningun motor la ha
+tocado: la matriz sigue verde bajo las comprobaciones AST de
+`tests/test_architecture.py`.
+
+Lo unico que la Fase 3 tiene pendiente es infraestructura de VERIFICACION
+-cobertura sin medir, CI sin evidencia sobre el ultimo commit-, no codigo. Esos
+criterios no se condonan: la Fase 4 no cierra sin ellos. Se dejan de usar como
+bloqueo de apertura, que es distinto.
+"""
+evidence = """
+Estado de los dos criterios que hoy no cumple NINGUNA capacidad, para no
+repetirlos en cada fila:
+
+`ci_green` - BLOQUEANTE, sin cumplir en ninguna. El pipeline existe desde
+`.github/workflows/ci.yml` -lint, tipos, suite sobre Windows y Linux en 3.11,
+3.12 y 3.13, build, instalacion del wheel y smoke-. Su ultima corrida verde es
+el commit `5f53c9c`. Los ocho commits posteriores -Optimization, R3, R4, R5 y
+A1 a A4- no se han empujado y por tanto NO han pasado por el pipeline. Marcarlo
+cumplido hoy seria afirmar sobre la maquina de quien lo ejecuto, que es
+exactamente lo que este criterio existe para impedir.
+
+`coverage_met` - no bloqueante, MEDIDO por primera vez el 2026-08-03: **79%** de
+lineas con ramas activadas, frente al umbral de 90% de `[dod_thresholds]`. No se
+cumple, y se anota el numero en lugar de la ausencia. El job `coverage` del
+pipeline lo publica en cada corrida.
+
+El 79% es un SUELO y no la cifra real. `tests/test_cli.py` ejercita los comandos
+en SUBPROCESOS -es la unica forma de comprobar el codigo de salida bajo una
+consola cp1252- y la cobertura no ve lo que ocurre dentro de ellos: los ocho
+modulos de `app/interfaces/cli/` figuran al 0% estando probados. Subir la cifra
+de verdad exige o bien instrumentar los subprocesos, o bien duplicar cada
+comprobacion en proceso; ninguna de las dos se hace por perseguir un numero.
+
+`ci_green` se resuelve empujando; `coverage_met`, escribiendo tests que falten
+donde de verdad falten.
 """
 
 ###############################################################################
@@ -235,13 +272,13 @@ existe. El arbol es uno solo, `ruff check` y `mypy --strict` estan limpios sobre
 reproducible entre procesos distintos.
 
 Quedan los dos criterios que no dependen del codigo sino de la infraestructura
-de verificacion:
+de verificacion, `coverage_met` y `ci_green`. Su estado comun esta en
+`meta.evidence`: el pipeline ya existe -lo anadio `e83eb01`- pero su ultima
+corrida verde es `5f53c9c`, ocho commits por detras de HEAD.
 
-* `coverage_met`  - no bloqueante. No se ha medido cobertura todavia.
-* `ci_green`      - bloqueante. No existe pipeline; toda la evidencia es local.
-
-`ready` exige TODOS los criterios, no doce de catorce. Sin CI, "esta verde" es
-una afirmacion sobre la maquina de quien la hizo.
+`ready` exige TODOS los criterios, no doce de catorce. Sin CI sobre el commit
+actual, "esta verde" sigue siendo una afirmacion sobre la maquina de quien la
+hizo.
 """
 
 [state.Orchestration]
@@ -273,9 +310,14 @@ done = [
 ]
 missing = """
 El contenedor resuelve puertos, valida el DAG al sellar y ejecuta el ciclo de
-vida en orden topologico. `build_platform` compone reloj, configuracion, bus y
-los tres catalogos, y `qp preflight` es su consumidor real: invoca `Preflight`
-con la configuracion efectiva y el inventario de plugins.
+vida en orden topologico. `build_platform` compone reloj, configuracion, bus,
+los tres catalogos de componentes y -desde ADR-0013- el catalogo de
+instrumentos, que es el primer adaptador de DOMINIO que la plataforma inyecta de
+verdad. `qp preflight` y `qp backtest` son sus consumidores reales: aquel invoca
+`Preflight` con la configuracion efectiva, este obtiene por `platform_services`
+el reloj y el catalogo que el caso de uso necesita, sin nombrar un solo puerto
+-la matriz no deja que `interfaces` vea `shared`, y esa restriccion es la que
+impide que un comando se salte los casos de uso-.
 
 Falta el consumidor real del CICLO DE VIDA. Hoy `build_platform` devuelve el
 contenedor sellado y nadie llama a `start()`: las seis fases estan implementadas
@@ -315,33 +357,279 @@ done = [
 ]
 missing = """
 La suite se ejecuta y `docs/ARCHITECTURE.md` esta en sincronia con los
-contratos. Pendientes `coverage_met` (no bloqueante) y `ci_green` (bloqueante):
-la gobernanza rompe el build local, pero todavia no hay build remoto que romper.
+contratos. Pendientes `coverage_met` y `ci_green`, en el estado que describe
+`meta.evidence`.
+
+Esta capacidad gano en ADR-0012 la comprobacion que le faltaba:
+`test_delivery_state_matches_capabilities` y sus tres companeras cruzan ESTE
+fichero contra `architecture.toml` y contra el arbol. Antes, una fila podia
+contradecir al codigo durante meses -y lo hizo- sin que nada lo detectara.
 """
 
 [state.Research]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/research/data/",
+    "app/research/features/",
+    "app/research/signals/",
+    "app/research/strategies/",
+    "app/research/backtest/",
+]
+principles = ["P1", "P2", "P6"]
+decisions = ["ADR-0002", "ADR-0003", "ADR-0010", "ADR-0011"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+La cadena esta completa de dato a resultado: `data` lee y escribe Parquet con
+catalogo, `features` produce indicadores puros con `warmup` declarado, `signals`
+decide por barra con `ReasonCode`, `strategies` compila un `StrategySpec` en algo
+evaluable y `backtest` recorre la historia barra a barra llenando en la apertura
+de `i+1`.
+
+`tests/test_no_lookahead.py` verifica la causalidad perturbando el futuro y
+`tests/test_backtest.py::test_the_run_is_deterministic` la reproducibilidad de
+la corrida.
+
+El CONSUMIDOR ya existe: `application.backtest` recorre la cadena completa de
+Parquet a artefacto y `qp backtest` la expone (ADR-0013). El motor deja de
+ejercitarse solo desde los tests.
+
+Lo que sigue sin consumidor es la mitad de INVESTIGACION del paquete: nadie
+compone todavia features y signals fuera del backtest, y `research.data` solo se
+lee -el catalogo se puebla desde `qp download`-.
+
+Pendientes ademas `fingerprint_stable` -no aplica todavia: el motor no produce
+huella de configuracion propia-, `coverage_met` (no bloqueante) y `ci_green`
+(bloqueante, ver la nota de `meta.evidence`).
+"""
 
 [state.Discovery]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/discovery/engine.py",
+    "app/discovery/generator/search_space.py",
+    "app/optimization/engine.py",
+]
+principles = ["P1", "P6"]
+decisions = ["ADR-0003"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+`DiscoveryEngine` produce candidatos desde el catalogo de datasets sin conocer
+fuente ni broker, y `OptimizationEngine` asciende por mutacion minima puntuando
+DENTRO de muestra -el campo se llama `in_sample_score` a proposito-. Ambos
+reproducen su busqueda con la misma semilla, verificado en
+`test_the_same_seed_and_dataset_reproduce_the_search` y
+`test_the_same_seed_reproduces_the_search`.
+
+Los subpaquetes declarados de `discovery` -catalog, constraints, evaluation,
+evolution, graph, pruning, scoring, serialization- siguen vacios. Hoy la
+generacion vive entera en `generator/search_space.py`, que basta para el
+espacio actual y no para una busqueda evolutiva.
+
+Falta el runner que lo invoque. Pendientes `fingerprint_stable`, `coverage_met`
+(no bloqueante) y `ci_green` (bloqueante).
+"""
 
 [state.Validation]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/walkforward/partition.py",
+    "app/walkforward/engine.py",
+    "app/validation/engine.py",
+    "app/validation/statistical.py",
+    "app/domain/value_objects/validation_metrics.py",
+]
+principles = ["P1", "P8"]
+decisions = ["ADR-0010", "ADR-0016"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+`WalkForwardEngine` ajusta dentro de muestra y mide fuera sin elegir nunca con
+el resultado OOS, y `ValidationEngine` contrasta la evidencia con un veredicto
+de TRES valores: `INCONCLUSIVE` distingue "la estrategia no vale" de "el
+experimento no puede decidir con estos folds".
+
+`deterministic` YA se declara cumplido. Walk-forward tiene desde ADR-0016 su
+propia verificacion con el ajustador REAL -el unico camino del flujo con azar-:
+dos corridas con la misma semilla producen el volcado completo identico, cada
+fold recibe una semilla propia y las corridas con semillas contiguas no
+comparten generador.
+
+Esa ultima comprobacion destapo un defecto que no rompia nada visible: el motor
+derivaba la semilla de cada fold SUMANDO su indice, de modo que el fold 1 de la
+corrida con semilla 1 exploraba igual que el fold 0 de la corrida con semilla 2.
+Dos experimentos presentados como independientes compartian camino de busqueda
+en la mitad de sus folds, y la evidencia agregada parecia mas robusta de lo que
+era. Ahora se deriva con `core.determinism.derive_seed`, que es la funcion que
+el nucleo declara para esto.
+
+Pendientes ademas `fingerprint_stable`, `coverage_met` (no bloqueante) y
+`ci_green` (bloqueante).
+"""
 
 [state.Risk]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/portfolio/limits.py",
+    "app/portfolio/policy.py",
+]
+principles = ["P1", "P3"]
+decisions = ["ADR-0014"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+`FixedFractionalRiskPolicy` dimensiona sobre el capital actual y la distancia al
+stop, con el control que de verdad importa en una division: que el stop exista y
+supere el coste de operar, antes que cualquier tope de margen o de posiciones.
+`SizingDecision` conserva `raw_lots` junto a `lots`, de modo que cada recorte es
+auditable en lugar de silencioso.
+
+ADR-0014 cierra el hueco que esta capacidad arrastraba: registra por que el
+dimensionamiento es fraccional fijo sobre el capital ACTUAL, por que el primer
+control es el stop y no el margen -el calculo es una division, y con el stop
+tendiendo a cero el tamano tiende a infinito-, por que se distingue lo que
+recorta de lo que rechaza, y por que `portfolio` no puede ver la evidencia
+estadistica. Con las cuatro alternativas descartadas y el motivo de cada una.
+
+Pendientes ademas `fingerprint_stable`, `coverage_met` (no bloqueante) y
+`ci_green` (bloqueante).
+"""
 
 [state.Execution]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/execution/fills.py",
+    "app/broker/mt5_source.py",
+    "app/domain/entities/order.py",
+    "app/domain/services/positions.py",
+]
+principles = ["P1", "P2"]
+decisions = ["ADR-0011"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+Lo construido es la mitad de simulacion: los dos modelos de llenado -optimista y
+adverso, cuya diferencia mide la fragilidad frente a la calidad de ejecucion- y
+las reglas de vida de una posicion en `domain.services.positions`, compartidas a
+proposito entre backtest y ejecucion real. Los dos modelos se eligen ya desde
+`qp backtest --fills` y cada uno queda sellado por su nombre en el artefacto
+(ADR-0013), de modo que la comparacion que justifica su existencia es una
+invocacion y no un ejercicio manual.
+
+Falta la mitad que toca el mundo. **No existe ningun adaptador de `BrokerPort`**:
+`app/broker/mt5_source.py` implementa `MarketDataPort` -descarga historico- y
+nada mas. Tampoco hay adaptador de `LiveFeedPort` ni de `TradeRepositoryPort`.
+Es el hueco literal entre esta plataforma y una cuenta demo, y es la razon de
+que `paper/` y `live/` sigan vacios.
+
+Pendientes ademas `fingerprint_stable`, `coverage_met` (no bloqueante) y
+`ci_green` (bloqueante).
+"""
 
 [state.Analytics]
-status = "not_started"
+status = "in_progress"
 phase = "4"
+artifacts = [
+    "app/analytics/performance.py",
+]
+principles = ["P1", "P9"]
+decisions = ["ADR-0010", "ADR-0012"]
+done = [
+    "code_implemented",
+    "unit_tests",
+    "contract_tests",
+    "adr_recorded",
+    "constitution_cited",
+    "contracts_updated",
+    "docs_regenerated",
+    "no_todo_markers",
+    "no_suppressions",
+    "no_warnings",
+    "deterministic",
+]
+missing = """
+`performance_metrics` calcula las dieciocho metricas de `PerformanceMetrics` a
+partir de operaciones cerradas y curva de equity. Es la mitad que faltaba de una
+separacion que el dominio ya declaraba: el TIPO es contrato entre capas y vive
+en `domain`; el CALCULO es un motor y vive aqui (ADR-0012, parte D).
+
+Se implemento con las prohibiciones del contrato como criterio, no como
+comentario: no decide, no ejecuta, no juzga y no reordena. Que no influye en lo
+que mide esta verificado -`test_the_inputs_are_never_modified`- y no solo
+declarado.
+
+Ya tiene consumidor real: `application.backtest` mide con ella cada corrida y
+sella el resultado en el artefacto (ADR-0013). `walkforward` y `validation`, en
+cambio, siguen puntuando con `ObjectivePort` y no la usan todavia.
+
+Fuera de alcance a proposito, para la rebanada siguiente: atribucion por bloque
+y generacion de informes. `SYSTEM_MODEL.md` los asigna a esta capacidad y el
+motor no los cubre; se anota para que la ausencia sea visible.
+
+Pendientes ademas `fingerprint_stable`, `coverage_met` (no bloqueante) y
+`ci_green` (bloqueante).
+"""
 
 [state.Monitoring]
 status = "in_progress"
@@ -389,12 +677,16 @@ artifacts = [
     "app/interfaces/cli/status_cmd.py",
     "app/interfaces/cli/config_cmd.py",
     "app/interfaces/cli/plugins_cmd.py",
+    "app/interfaces/cli/download_cmd.py",
+    "app/interfaces/cli/backtest_cmd.py",
 ]
 principles = ["P4"]
+decisions = ["ADR-0013"]
 done = [
     "code_implemented",
     "unit_tests",
     "contract_tests",
+    "adr_recorded",
     "contracts_updated",
     "no_suppressions",
     "no_warnings",
@@ -405,7 +697,14 @@ El grupo de plataforma esta completo: doctor, preflight, status, config show /
 validate y plugins list / validate. Todos con `--json`, todos con codigo de
 salida distinguido (0 correcto, 1 fallo del comando, 2 uso incorrecto).
 
-Falta `adr_recorded`: el cierre de la fase 3 exige un ADR que registre la
-evidencia, y todavia no existe. Pendientes tambien `coverage_met` (no
-bloqueante) y `ci_green` (bloqueante).
+A ellos se suman los dos comandos de trabajo: `qp download`, que trae y registra
+un historico, y `qp backtest`, que recorre la cadena completa hasta el artefacto
+(ADR-0013). Los dos obtienen su reloj de sitios DISTINTOS -`download` construye
+un `SystemClock()` propio y `backtest` lo pide a `platform_services`-, y la
+asimetria queda anotada aqui en lugar de disimulada: funciona, pero deja a
+`download` fuera de la eleccion de reloj por modo.
+
+`constitution_cited` y `docs_regenerated` siguen sin declararse cumplidos para
+esta capacidad. Pendientes tambien `coverage_met` (no bloqueante) y `ci_green`
+(bloqueante).
 """

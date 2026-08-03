@@ -17,7 +17,7 @@
 #
 #   * no gatea `mypy scripts`  -> 6 errores conocidos, ver job `types`
 #   * no ejercita `qp doctor` desde el wheel -> QP-010, ver job `smoke`
-#   * no mide cobertura ni publica informes  -> pertenece al sprint siguiente
+#   * no GATEA cobertura -> se mide y se publica, ver job `coverage`
 #
 # NOTA IMPORTANTE: este workflow no fija `PYTHONIOENCODING`. Es deliberado. La
 # consola por defecto de Windows es cp1252 y ahi es donde `qp doctor` terminaba
@@ -152,6 +152,46 @@ jobs:
       # el criterio nombra. Desde un wheel todavia no pasa: ver el job `smoke`.
       - name: qp doctor (criterio de aceptacion de la Fase 3)
         run: qp doctor
+
+  # ---------------------------------------------------------------------------
+  # 3.5 Cobertura. Se MIDE y se publica; no gatea.
+  #
+  # La DoD de `configs/delivery.toml` marca `coverage_met` como `mandatory` y NO
+  # `blocking`, con su motivo escrito: un umbral convertido en barrera dura
+  # empuja a escribir tests de relleno que suben el numero sin detectar nada.
+  # Aqui se mide para que el numero exista y se vea evolucionar, que es lo que
+  # faltaba: hasta ahora no se habia medido NUNCA.
+  #
+  # ADVERTENCIA SOBRE EL NUMERO, para que no se lea de mas: `tests/test_cli.py`
+  # ejercita los comandos en SUBPROCESOS -es la unica forma de comprobar el
+  # codigo de salida bajo una consola cp1252-, y la cobertura no ve lo que
+  # ocurre dentro de ellos. Los modulos de `app/interfaces/cli/` aparecen por
+  # tanto muy por debajo de lo que estan realmente probados. La cifra es un
+  # SUELO, no la verdad.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: coverage (informativo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar el proyecto
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Medir
+        run: pytest --cov --cov-report=term --cov-report=xml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: coverage.xml
+          if-no-files-found: error
 
   # ---------------------------------------------------------------------------
   # 4. Construccion del artefacto.

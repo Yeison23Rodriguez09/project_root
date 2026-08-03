@@ -122,12 +122,12 @@ class OptimizationEngine:
         if spec.state is not LifecycleState.CANDIDATE:
             # Optimizar algo ya validado invalidaria su evidencia sin decirlo:
             # los numeros archivados dejarian de corresponder al spec.
-            raise InvariantViolation(
-                "Solo se optimizan candidatos", state=str(spec.state)
-            )
+            raise InvariantViolation("Solo se optimizan candidatos", state=str(spec.state))
 
         bars = self._catalog.get(dataset_fingerprint)
-        return self._search(spec, bars, iterations=iterations, seed=seed, origin=dataset_fingerprint)
+        return self._search(
+            spec, bars, iterations=iterations, seed=seed, origin=dataset_fingerprint
+        )
 
     def optimize_on(
         self,
@@ -152,9 +152,7 @@ class OptimizationEngine:
 
     def fit(self, spec: StrategySpec, bars: Bars, *, seed: int) -> StrategySpec:
         """Cumple `StrategyFitterPort`: ajusta y devuelve solo la variante."""
-        return self.optimize_on(
-            spec, bars, iterations=self._fit_iterations, seed=seed
-        ).best
+        return self.optimize_on(spec, bars, iterations=self._fit_iterations, seed=seed).best
 
     def _search(
         self,

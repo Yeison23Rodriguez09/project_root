@@ -155,7 +155,7 @@ def test_construction_does_not_touch_the_callers_memory() -> None:
     step = M15_NS
     propios = {
         "timestamp": np.arange(0, 6 * step, step, dtype=np.int64),  # owndata=True
-        "volume": np.full(6, 100.0),                                # owndata=True
+        "volume": np.full(6, 100.0),  # owndata=True
     }
     close = np.asarray([1.10, 1.11, 1.12, 1.13, 1.14, 1.15], dtype=np.float64)
 

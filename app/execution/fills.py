@@ -28,10 +28,15 @@ class OpenFillSimulator:
     """Llenado en la apertura de la barra. Es la referencia realista.
 
     La decision se toma al CIERRE de la barra `i` y la orden se envia a mercado,
-    de modo que se llena en la apertura de `i+1` (ADR-0003). Este modelo asume
+    de modo que se llena en la apertura de `i+1` (`behavior.causal_features_only`
+    de `configs/architecture.toml`, P1). Este modelo asume
     que esa apertura es alcanzable, que es cierto salvo en huecos, y que el hueco
     ya viene dentro del precio de apertura.
     """
+
+    @property
+    def name(self) -> str:
+        return "OPEN"
 
     def fill_price(
         self,
@@ -59,6 +64,10 @@ class AdverseFillSimulator:
     la diferencia contra `OpenFillSimulator` mide exactamente cuanto de su edge
     vive de suponer llenados favorables.
     """
+
+    @property
+    def name(self) -> str:
+        return "ADVERSE"
 
     def fill_price(
         self,

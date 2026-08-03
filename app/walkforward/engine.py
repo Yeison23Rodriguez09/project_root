@@ -20,6 +20,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from app.core.determinism import derive_seed
 from app.core.exceptions import InvariantViolation
 from app.core.types import LifecycleState
 from app.domain.entities.bars import Bars
@@ -33,6 +34,13 @@ from app.walkforward import partition
 ROLLING = "rolling"
 ANCHORED = "anchored"
 SCHEMES: tuple[str, ...] = (ROLLING, ANCHORED)
+
+#: Namespace de la semilla que recibe el ajustador en cada fold.
+#:
+#: Se declara como constante y no en linea porque cambiarlo invalida la
+#: reproducibilidad de toda corrida anterior: la misma semilla maestra dejaria
+#: de producir las mismas variantes. Es un dato de contrato, no una etiqueta.
+FOLD_SEED_NAMESPACE = "walkforward.fold"
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,9 +198,21 @@ class WalkForwardEngine:
                 oos_bars=len(out_of_sample),
             )
 
-        # La semilla se deriva del indice del fold: cada uno explora de forma
-        # independiente y reordenarlos no cambiaria ningun resultado.
-        fitted = self._fitter.fit(spec, in_sample, seed=seed + fold.index)
+        # La semilla se deriva del indice del fold con `derive_seed`, que es la
+        # funcion que el propio nucleo declara para esto -su contrato nombra
+        # literalmente "numero de fold" como coordenada-.
+        #
+        # Antes se sumaba: `seed + fold.index`. Producia semillas CORRELACIONADAS
+        # entre corridas, y de la peor forma posible porque no rompia nada
+        # visible: el fold 1 de la corrida con semilla 1 exploraba exactamente
+        # igual que el fold 0 de la corrida con semilla 2. Dos experimentos que
+        # se presentan como independientes compartian camino de busqueda en la
+        # mitad de sus folds, y la evidencia agregada parecia mas robusta de lo
+        # que era. `derive_seed` garantiza justo lo contrario: coordenadas
+        # distintas producen semillas no correlacionadas.
+        fitted = self._fitter.fit(
+            spec, in_sample, seed=derive_seed(seed, FOLD_SEED_NAMESPACE, fold.index)
+        )
 
         return FoldOutcome(
             fold=fold,

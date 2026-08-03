@@ -248,6 +248,40 @@ markers = [
 ]
 
 ###############################################################################
+# COBERTURA
+#
+# Los umbrales NO viven aqui: los declara `configs/delivery.toml` en
+# `[dod_thresholds]`, que es el fichero que gobierna la Definition of Done. Este
+# bloque solo dice COMO se mide.
+#
+# No se fija `fail_under` a proposito. La DoD marca `coverage_met` como
+# `mandatory` pero NO `blocking`, y su justificacion esta escrita: un umbral
+# convertido en barrera dura empuja a escribir tests de relleno que suben el
+# numero sin detectar nada, y eso es peor que la cobertura baja porque produce
+# confianza injustificada. Lo que si bloquea es `deterministic`.
+###############################################################################
+
+[tool.coverage.run]
+source = ["app"]
+
+# Ramas ademas de lineas. Una linea `if` ejecutada una sola vez cuenta como
+# cubierta aunque su rama falsa no se haya probado nunca, y las rutas de decision
+# -precedencia, causalidad, promocion- son justo donde eso importa.
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+
+# `...` es el cuerpo de un metodo de `Protocol`: no es codigo, es una firma.
+# Contarlo como no cubierto castigaria por declarar puertos, que es exactamente
+# lo que la arquitectura pide hacer.
+exclude_also = [
+    "^\\s*\\.\\.\\.$",
+    "if TYPE_CHECKING:",
+]
+
+###############################################################################
 # MYPY
 ###############################################################################
 

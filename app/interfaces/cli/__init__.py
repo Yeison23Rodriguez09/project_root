@@ -30,6 +30,7 @@ __version__ = "0.6.0"
 #: prohibe los imports relativos no puede permitirse dos modulos con el mismo
 #: nombre corto. Aplicarlo solo a los que chocan obligaria a saber cuales chocan.
 COMMANDS: dict[str, tuple[str, str]] = {
+    "backtest": ("app.interfaces.cli.backtest_cmd", "simula una estrategia sobre una serie"),
     "doctor": ("app.interfaces.cli.doctor_cmd", "comprueba que la plataforma este bien construida"),
     "download": ("app.interfaces.cli.download_cmd", "descarga un historico y lo registra"),
     "preflight": ("app.interfaces.cli.preflight_cmd", "valida el despliegue antes de operar"),

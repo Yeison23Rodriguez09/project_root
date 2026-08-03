@@ -185,14 +185,10 @@ def test_every_package_is_governed() -> None:
         pytest.skip("La matriz no exige cobertura total de paquetes")
     declared = set(packages())
     present = {
-        child.name
-        for child in APP.iterdir()
-        if child.is_dir() and (child / "__init__.py").exists()
+        child.name for child in APP.iterdir() if child.is_dir() and (child / "__init__.py").exists()
     }
     missing = sorted(present - declared)
-    assert not missing, (
-        "Paquetes sin fila en configs/architecture.toml: " + ", ".join(missing)
-    )
+    assert not missing, "Paquetes sin fila en configs/architecture.toml: " + ", ".join(missing)
 
 
 @pytest.mark.contract
@@ -232,8 +228,7 @@ def test_dependencies_never_climb_layers() -> None:
         f"{name} ({spec['layer']}) -> {dep} ({packages()[dep]['layer']})"
         for name, spec in packages().items()
         for dep in spec.get("depends", ())
-        if dep in packages()
-        and ranks[str(packages()[dep]["layer"])] > ranks[str(spec["layer"])]
+        if dep in packages() and ranks[str(packages()[dep]["layer"])] > ranks[str(spec["layer"])]
     )
     assert not climbs, "Dependencias que suben de capa:\n  " + "\n  ".join(climbs)
 

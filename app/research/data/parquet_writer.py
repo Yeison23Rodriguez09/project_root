@@ -146,4 +146,5 @@ class ParquetMarketDataWriter:
                 cause=str(exc),
             ) from exc
 
+
 __all__ = ["COLUMNS", "ParquetMarketDataWriter"]

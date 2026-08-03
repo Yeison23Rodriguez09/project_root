@@ -167,12 +167,8 @@ class StrategySpec:
             names_by_key: dict[str, list[str]] = {}
             for block, key in zip(enabled, keys, strict=True):
                 names_by_key.setdefault(key, []).append(str(block.name))
-            repeated = sorted(
-                {names[0] for names in names_by_key.values() if len(names) > 1}
-            )
-            raise InvariantViolation(
-                f"Bloques duplicados en {group_name}", blocks=repeated
-            )
+            repeated = sorted({names[0] for names in names_by_key.values() if len(names) > 1})
+            raise InvariantViolation(f"Bloques duplicados en {group_name}", blocks=repeated)
 
     # -- identidad ----------------------------------------------------------
 

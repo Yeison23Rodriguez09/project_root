@@ -67,9 +67,7 @@ class StatisticalTestResult:
         if not self.name.strip():
             raise InvariantViolation("Una prueba estadistica necesita nombre")
         if not (0.0 <= self.p_value <= 1.0):
-            raise InvariantViolation(
-                "p_value fuera de [0,1]", test=self.name, p_value=self.p_value
-            )
+            raise InvariantViolation("p_value fuera de [0,1]", test=self.name, p_value=self.p_value)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,9 +120,7 @@ class WalkForwardMetrics:
         if self.folds < 0:
             raise InvariantViolation("folds no puede ser negativo", folds=self.folds)
         if not (0.0 <= self.stability <= 1.0):
-            raise InvariantViolation(
-                "stability fuera de [0,1]", stability=self.stability
-            )
+            raise InvariantViolation("stability fuera de [0,1]", stability=self.stability)
         if self.wfe is not None and self.is_return <= 0.0:
             raise InvariantViolation(
                 "wfe exige rendimiento dentro de muestra positivo",

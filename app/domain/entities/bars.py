@@ -54,7 +54,8 @@ class Bars:
     de la barra `i`. La barra `i` solo se considera conocida en su totalidad en
     `timestamp[i] + timeframe`. Toda la plataforma asume que una decision
     tomada con datos de la barra `i` se ejecuta como pronto en la apertura de
-    la barra `i+1`. Ver ADR-0003.
+    la barra `i+1`. Ver `behavior.causal_features_only` en
+    `configs/architecture.toml` y SYSTEM_MODEL.md, seccion 4.
 
     Attributes:
         symbol: Instrumento al que pertenece la serie.

@@ -151,9 +151,7 @@ class DiscoveryEngine:
             {str(spec.state) for spec in candidates if spec.state is not LifecycleState.CANDIDATE}
         )
         if intruders:
-            raise InvariantViolation(
-                "Discovery solo puede producir candidatos", states=intruders
-            )
+            raise InvariantViolation("Discovery solo puede producir candidatos", states=intruders)
 
     def _describe_space(self) -> dict[str, Any]:
         describe = getattr(self._space, "describe", None)

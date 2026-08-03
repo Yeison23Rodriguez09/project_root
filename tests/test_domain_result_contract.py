@@ -125,7 +125,12 @@ def test_cost_model_admits_signed_financing_only() -> None:
     """`CostModel` deja pasar la financiacion negativa y sigue rechazando el resto."""
     CostModel(financing_per_lot_per_day=-0.5)
 
-    for campo in ("commission_per_lot", "spread_points", "slippage_points", "slippage_atr_multiple"):
+    for campo in (
+        "commission_per_lot",
+        "spread_points",
+        "slippage_points",
+        "slippage_atr_multiple",
+    ):
         with pytest.raises(InvariantViolation):
             CostModel(**{campo: -1.0})
 
@@ -139,10 +144,10 @@ def test_cost_model_admits_signed_financing_only() -> None:
 @pytest.mark.parametrize(
     ("campo", "valor"),
     [
-        ("gross_loss", 10.0),          # debe ser negativo o cero
-        ("max_drawdown_pct", 1.5),     # es una fraccion
+        ("gross_loss", 10.0),  # debe ser negativo o cero
+        ("max_drawdown_pct", 1.5),  # es una fraccion
         ("max_drawdown_pct", -0.1),
-        ("profit_factor", -1.0),       # no puede ser negativo
+        ("profit_factor", -1.0),  # no puede ser negativo
         ("cost_ratio", -0.5),
         ("win_rate", 1.5),
         ("exposure", -0.1),
@@ -190,10 +195,7 @@ def test_metrics_cannot_be_built_without_declaring_their_period() -> None:
     Sin `timeframe`, un Sharpe de M15 y otro de H1 son incomparables y nada en el
     objeto lo delata, mientras discovery los ordena en la misma lista.
     """
-    completo = {
-        f: getattr(_metrics(), f)
-        for f in PerformanceMetrics.__dataclass_fields__
-    }
+    completo = {f: getattr(_metrics(), f) for f in PerformanceMetrics.__dataclass_fields__}
     for obligatorio in ("timeframe", "bars"):
         incompleto = {k: v for k, v in completo.items() if k != obligatorio}
         with pytest.raises(TypeError):
@@ -331,16 +333,16 @@ def test_test_keys_must_match_their_names() -> None:
     """Una clave que no coincide con el nombre produce trazas irrastreables."""
     with pytest.raises(InvariantViolation):
         ValidationMetrics(
-            tests={"pbo": StatisticalTestResult(name="spa", statistic=1.0, p_value=0.2, passed=True)}
+            tests={
+                "pbo": StatisticalTestResult(name="spa", statistic=1.0, p_value=0.2, passed=True)
+            }
         )
 
 
 @pytest.mark.unit
 def test_evidence_is_immutable_after_construction() -> None:
     """Nadie anade una prueba despues de emitida la evidencia."""
-    original = {
-        "pbo": StatisticalTestResult(name="pbo", statistic=0.3, p_value=0.3, passed=True)
-    }
+    original = {"pbo": StatisticalTestResult(name="pbo", statistic=0.3, p_value=0.3, passed=True)}
     evidencia = ValidationMetrics(tests=original)
 
     original["colada"] = StatisticalTestResult(

@@ -77,9 +77,7 @@ class ValidationReport:
         **context: Any,
     ) -> ValidationReport:
         """Registra un hallazgo. Devuelve `self` para permitir encadenamiento."""
-        self.issues.append(
-            Issue(code=code, message=message, severity=severity, context=context)
-        )
+        self.issues.append(Issue(code=code, message=message, severity=severity, context=context))
         return self
 
     def extend(self, other: ValidationReport) -> ValidationReport:
