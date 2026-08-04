@@ -264,6 +264,7 @@ historia, una estrategia en produccion es un numero sin procedencia.
 | `ci` | `deterministic` | Verificacion automatica. Sin red, sin datos externos, sin broker. |
 | `paper` | `research` | Feed en tiempo real, sin ejecucion real. |
 | `live` | `paper` | Ejecucion real. El unico modo que puede mover dinero. |
+| `demo` | `live` | Integracion tecnica contra un terminal real, sobre cuenta de demostracion. |
 
 ### Invariantes que ningun modo puede romper
 - `broker_orders_require_promotion_and_approval` (P8)
@@ -285,7 +286,16 @@ Un plugin solo ve: `app.core`, `app.domain`, `app.shared`. Nada mas.
 | [`ADR-0006`](../decisions/ADR-0006.toml) | accepted | 2026-07-26 | Platform | La Fase 3 construye una plataforma; los motores no empiezan hasta la Fase 4 |
 | [`ADR-0007`](../decisions/ADR-0007.toml) | accepted | 2026-07-26 | Platform | La arquitectura se congela por stress implementation, con registro de hallazgos |
 | [`ADR-0008`](../decisions/ADR-0008.toml) | accepted | 2026-07-28 | Platform | Monitoring depende de events: la arista que el propio contrato ya declaraba en prosa |
+| [`ADR-0009`](../decisions/ADR-0009.toml) | accepted | 2026-07-30 | Platform | El sello de los artefactos derivados no depende del tiempo fisico |
+| [`ADR-0010`](../decisions/ADR-0010.toml) | accepted | 2026-07-30 | Platform | El contrato de resultado se cierra antes de que exista el primer motor |
+| [`ADR-0011`](../decisions/ADR-0011.toml) | accepted | 2026-07-31 | Platform | La cadena de datos se parte en tres piezas que no se conocen entre si |
+| [`ADR-0012`](../decisions/ADR-0012.toml) | accepted | 2026-08-02 | Platform | La Fase 4 se abre con la 3 en curso, y el fichero de entrega deja de poder mentir |
+| [`ADR-0013`](../decisions/ADR-0013.toml) | accepted | 2026-08-02 | Platform | El primer recorrido ejecutable, y la identidad de un artefacto de corrida |
+| [`ADR-0014`](../decisions/ADR-0014.toml) | accepted | 2026-08-03 | Trading | El riesgo dimensiona sobre capital y stop, y separa lo que recorta de lo que rechaza |
+| [`ADR-0015`](../decisions/ADR-0015.toml) | accepted | 2026-08-03 | Platform | Los contratos de dominio entran en la configuracion resuelta, y la prosa se queda fuera |
+| [`ADR-0016`](../decisions/ADR-0016.toml) | accepted | 2026-08-03 | Research | La semilla de cada fold se deriva, no se suma |
+| [`ADR-0017`](../decisions/ADR-0017.toml) | accepted | 2026-08-04 | Trading | Demo es live con una salvaguarda mas, no con una menos |
 
 ---
 
-Generado el 2026-07-28 por `scripts/generate_docs.py`.
+Generado por `scripts/generate_docs.py` desde `configs/architecture.toml` v3.

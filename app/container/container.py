@@ -310,9 +310,7 @@ class Container:
         if port in self._resolving:
             raise ResolutionCycle(
                 "Ciclo al resolver dependencias",
-                chain=[
-                    self._definitions[p].component_id for p in (*self._resolving, port)
-                ],
+                chain=[self._definitions[p].component_id for p in (*self._resolving, port)],
             )
 
         self._resolving.append(port)

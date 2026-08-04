@@ -184,9 +184,7 @@ def test_context_refuses_to_seal_an_artifact_without_data_provenance() -> None:
     """
     from app.core.exceptions import ConfigError
 
-    context = RunContext.create(
-        root=ROOT, config_hash="abc", seed=1, at_ns=TimestampNs(0)
-    )
+    context = RunContext.create(root=ROOT, config_hash="abc", seed=1, at_ns=TimestampNs(0))
     with pytest.raises(ConfigError):
         context.fingerprint()
 

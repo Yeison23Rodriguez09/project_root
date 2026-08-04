@@ -169,9 +169,7 @@ def test_singleton_returns_the_same_instance() -> None:
 
 def test_transient_returns_a_new_instance() -> None:
     container = Container()
-    container.register(
-        PortA, lambda _c: object(), scope=Scope.TRANSIENT, component_id="A"
-    )
+    container.register(PortA, lambda _c: object(), scope=Scope.TRANSIENT, component_id="A")
     container.seal()
     assert container.resolve(PortA) is not container.resolve(PortA)
 
@@ -240,9 +238,7 @@ def test_each_phase_completes_for_everyone_before_the_next() -> None:
     log: list[str] = []
     container = Container()
     container.register(PortA, lambda _c: Recorder("A", log), component_id="A")
-    container.register(
-        PortB, lambda _c: Recorder("B", log), depends_on=[PortA], component_id="B"
-    )
+    container.register(PortB, lambda _c: Recorder("B", log), depends_on=[PortA], component_id="B")
     container.seal()
     container.start()
     assert log[:4] == ["initialize:A", "initialize:B", "load:A", "load:B"]
@@ -252,9 +248,7 @@ def test_shutdown_runs_in_reverse_order() -> None:
     log: list[str] = []
     container = Container()
     container.register(PortA, lambda _c: Recorder("A", log), component_id="A")
-    container.register(
-        PortB, lambda _c: Recorder("B", log), depends_on=[PortA], component_id="B"
-    )
+    container.register(PortB, lambda _c: Recorder("B", log), depends_on=[PortA], component_id="B")
     container.seal()
     container.start()
     log.clear()
@@ -291,9 +285,7 @@ def test_shutdown_closes_everything_even_if_one_component_fails() -> None:
         depends_on=[PortC],
         component_id="B",
     )
-    container.register(
-        PortA, lambda _c: Recorder("A", log), depends_on=[PortB], component_id="A"
-    )
+    container.register(PortA, lambda _c: Recorder("A", log), depends_on=[PortB], component_id="A")
     container.seal()
     container.start()
     log.clear()

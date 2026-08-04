@@ -33,10 +33,12 @@ from app.core.validation import ValidationReport
 from app.domain.entities.bars import Bars
 from app.domain.entities.order import Order, OrderIntent
 from app.domain.entities.trade import Position, Trade
+from app.domain.value_objects.dataset import WriteResult
 from app.domain.value_objects.instrument import Instrument
 from app.domain.value_objects.metrics import PerformanceMetrics
 from app.domain.value_objects.signal import SignalOutput
 from app.domain.value_objects.strategy_spec import StrategySpec
+from app.domain.value_objects.validation_metrics import StatisticalTestResult
 
 # ---------------------------------------------------------------------------
 # Tiempo
@@ -99,6 +101,50 @@ class LiveFeedPort(Protocol):
     def latest_closed_bar_ns(self, symbol: Symbol, timeframe: Timeframe) -> TimestampNs: ...
 
     def current_spread_points(self, symbol: Symbol) -> float: ...
+
+
+@runtime_checkable
+class MarketDataWriterPort(Protocol):
+    """Persistencia de historicos ya validados. Serializa y nada mas.
+
+    Contrapartida de `MarketDataPort`: aquel lee, este escribe. La simetria es
+    intencionada -el mismo `Bars` entra y sale sin cambiar de forma- y es lo que
+    permite que un historico descargado hoy se relea manana con las mismas
+    garantias.
+
+    Recibe `Bars` y ningun dato adicional porque no lo necesita: el simbolo y el
+    marco temporal son campos obligatorios de la serie, asi que el escritor no
+    puede depositarla bajo una identidad equivocada. El dato dice a que
+    instrumento pertenece.
+
+    Lo que este puerto NO hace, y la lista es el contrato (ADR-0011):
+
+    * no decide la ubicacion, el nombre ni la organizacion del repositorio: eso
+      lo resuelve una estrategia de disposicion que el adaptador recibe, de modo
+      que lector y escritor comparten convencion y no pueden divergir;
+    * no valida -si le llega un `Bars` es porque el tipo ya lo garantizo-;
+    * no normaliza, no deduplica y no descarga incrementalmente;
+    * no conoce proveedor, version, reloj ni catalogo de datasets.
+
+    Todo eso pertenece al servicio de almacenamiento. Un adaptador que decidiera
+    cualquiera de esas cosas tendria reglas de negocio dentro, y entonces
+    cambiar la politica obligaria a tocar la infraestructura.
+    """
+
+    def write(self, bars: Bars, *, overwrite: bool = False) -> WriteResult:
+        """Persiste la serie y devuelve los hechos tecnicos de la escritura.
+
+        `overwrite` va aqui y no en el llamante porque solo el adaptador sabe si
+        el destino ya existe. Por defecto es `False`: sobrescribir un historico
+        debe pedirse, nunca ocurrir por descuido.
+
+        Raises:
+            StorageError: el destino existe y `overwrite` es `False`, o el medio
+                no admitio la escritura.
+        """
+        ...
+
+    def exists(self, symbol: Symbol, timeframe: Timeframe) -> bool: ...
 
 
 @runtime_checkable
@@ -207,6 +253,13 @@ class ExecutionSimulatorPort(Protocol):
     pesimista y comparar. La diferencia entre ambos es una medida directa de la
     fragilidad de la estrategia frente a la calidad de ejecucion.
     """
+
+    @property
+    def name(self) -> str:
+        """Identidad del modelo: sin ella, dos corridas iguales bajo supuestos
+        de ejecucion distintos dan numeros distintos y el artefacto no explica
+        por que (ADR-0013)."""
+        ...
 
     def fill_price(
         self,
@@ -327,7 +380,9 @@ class ConfigurationRepositoryPort(Protocol):
     con que valores.
     """
 
-    def save(self, run_id: RunId, *, effective: Mapping[str, Any], trace: Mapping[str, Any]) -> str: ...
+    def save(
+        self, run_id: RunId, *, effective: Mapping[str, Any], trace: Mapping[str, Any]
+    ) -> str: ...
 
     def get(self, run_id: RunId) -> Mapping[str, Any]: ...
 
@@ -373,7 +428,9 @@ class StrategyRepositoryPort(Protocol):
     una senal de alarma valiosa.
     """
 
-    def save(self, spec: StrategySpec, metrics: PerformanceMetrics, evidence: Mapping[str, Any]) -> None: ...
+    def save(
+        self, spec: StrategySpec, metrics: PerformanceMetrics, evidence: Mapping[str, Any]
+    ) -> None: ...
 
     def get(self, strategy_id: StrategyId) -> StrategySpec: ...
 
@@ -489,6 +546,110 @@ class PromotionPolicyPort(Protocol):
 
 
 @runtime_checkable
+class StrategyFitterPort(Protocol):
+    """Ajusta un candidato sobre un tramo de datos y devuelve la variante.
+
+    Es lo que permite que walk-forward orqueste IS/OOS sin conocer al
+    optimizador: la matriz no deja que `walkforward` importe `optimization`, y
+    la direccion es la correcta -la validacion es una metodologia, no un motor
+    de busqueda-. Quien compone inyecta el ajustador.
+
+    Recibe BARRAS y no una huella de dataset: los tramos de un fold son rebanadas
+    en memoria, no series catalogadas.
+    """
+
+    def fit(self, spec: StrategySpec, bars: Bars, *, seed: int) -> StrategySpec: ...
+
+
+@runtime_checkable
+class ObjectivePort(Protocol):
+    """Puntua un candidato sobre una serie. Mayor es mejor.
+
+    Es la frontera que permite optimizar sin conocer como se evalua. Hoy lo
+    implementa un doble; manana lo implementara la cadena backtest + analytics
+    sin que el optimizador cambie una linea.
+
+    La puntuacion es SIEMPRE dentro de muestra: el optimizador ve los mismos
+    datos sobre los que ajusta. Por eso su resultado no es evidencia de nada
+    todavia, y por eso existe walk-forward.
+    """
+
+    def score(self, spec: StrategySpec, bars: Bars) -> float: ...
+
+
+@runtime_checkable
+class FoldEvidencePort(Protocol):
+    """Un fold ya evaluado, visto por quien lo juzga.
+
+    Solo las dos puntuaciones. Quien valida no necesita saber que rango temporal
+    ocupaba el fold ni que variante se ajusto en el: pedirlo ataria la validacion
+    a la forma concreta del resultado de walk-forward.
+    """
+
+    @property
+    def is_score(self) -> float: ...
+
+    @property
+    def oos_score(self) -> float: ...
+
+
+@runtime_checkable
+class WalkForwardEvidencePort(Protocol):
+    """Evidencia de un walk-forward, vista por quien la somete a contraste.
+
+    Existe porque `architecture.toml` declara `validation` y `walkforward` como
+    capacidades HERMANAS -misma `capability = "Validation"`, y `walkforward` no
+    esta en el `depends` de `validation`-, no como proveedor y consumidor. Quien
+    puede ver a las dos es `promotion`.
+
+    La consecuencia es deseable y no un rodeo: la validacion estadistica opera
+    sobre puntuaciones por fold, y le da igual si las produjo un walk-forward, un
+    combinatorial purged CV o una reejecucion archivada. Al ser estructural, el
+    resultado de walk-forward la cumple sin importar este modulo ni conocerlo.
+    """
+
+    @property
+    def spec(self) -> StrategySpec: ...
+
+    @property
+    def outcomes(self) -> Sequence[FoldEvidencePort]: ...
+
+    @property
+    def dataset_fingerprint(self) -> str: ...
+
+    @property
+    def seed(self) -> int: ...
+
+
+@runtime_checkable
+class FoldTestPort(Protocol):
+    """Contraste de hipotesis sobre las puntuaciones por fold.
+
+    Hermano de `StatisticalTestPort` y deliberadamente distinto: aquel recibe
+    `trades`, `equity` y `bars` -opera sobre UN backtest-, mientras que este
+    recibe la serie de puntuaciones de N folds. Forzar las pruebas de fold en
+    aquella firma obligaria a inventar trades que no existen.
+
+    `alpha` entra como parametro y no se lee dentro: el umbral que separa
+    "significativo" de "ruido" es politica, no propiedad de la prueba. La prueba
+    calcula el p-valor; el veredicto se sella con el umbral vigente para poder
+    auditar despues con cual se decidio.
+    """
+
+    @property
+    def name(self) -> str: ...
+
+    def run(
+        self,
+        *,
+        is_scores: FloatArray,
+        oos_scores: FloatArray,
+        alpha: float,
+        seed: int,
+    ) -> StatisticalTestResult: ...
+
+
+@runtime_checkable
 class SearchSpacePort(Protocol):
     """Espacio de busqueda enumerable y muestreable de discovery."""
 
@@ -517,10 +678,13 @@ __all__ = [
     "EventSinkPort",
     "ExecutionSimulatorPort",
     "FeatureFn",
+    "FoldEvidencePort",
+    "FoldTestPort",
     "InstrumentCatalogPort",
     "LifecyclePort",
     "LiveFeedPort",
     "MarketDataPort",
+    "MarketDataWriterPort",
     "PromotionPolicyPort",
     "PromotionRepositoryPort",
     "RiskPolicyPort",
@@ -528,6 +692,8 @@ __all__ = [
     "SearchSpacePort",
     "SignalBlockFn",
     "StatisticalTestPort",
+    "StrategyFitterPort",
     "StrategyRepositoryPort",
     "TradeRepositoryPort",
+    "WalkForwardEvidencePort",
 ]

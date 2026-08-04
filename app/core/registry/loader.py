@@ -138,9 +138,7 @@ class Loader:
         base = Path(directory).resolve()
         if not base.is_dir():
             if self.strict:
-                raise PluginLoadError(
-                    "El directorio de plugins no existe", directory=str(base)
-                )
+                raise PluginLoadError("El directorio de plugins no existe", directory=str(base))
             self._skipped.append((str(base), "directorio inexistente"))
             return self._report((str(base),))
 

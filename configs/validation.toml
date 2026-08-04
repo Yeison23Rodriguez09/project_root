@@ -1,0 +1,107 @@
+###############################################################################
+# VALIDATION.TOML - Politica de contraste estadistico
+#
+# Separa lo que es POLITICA (que umbral separa senal de ruido) de lo que es
+# METODO (como se calcula un p-valor). El metodo vive en `app/validation/`; el
+# umbral vive aqui, porque cambiarlo es una decision de negocio y debe verse en
+# un diff.
+#
+# Lo que este fichero NO decide: si una estrategia se promociona. Validation
+# emite evidencia estadistica; la promocion es otra autoridad y otro fichero.
+# Un candidato puede pasar el contraste y no promocionarse por rentabilidad
+# insuficiente, y puede ser muy rentable y no pasar el contraste.
+###############################################################################
+
+[meta]
+version = 1
+
+###############################################################################
+# UMBRAL DE SIGNIFICACION
+###############################################################################
+
+[thresholds]
+alpha = 0.05
+
+[thresholds.rationale]
+alpha = """
+Convencion, y se declara precisamente por serlo: 0.05 no tiene ninguna
+propiedad especial y quien lo cambie debe poder hacerlo en un diff en lugar de
+buscarlo dentro del codigo.
+
+No se aplica correccion por multiplicidad, y la omision es deliberada y no un
+olvido: el veredicto exige que TODAS las pruebas pasen. Una conjuncion no
+infla el error de tipo I, lo reduce -rechazar la nula se vuelve mas dificil
+con cada prueba anadida, no mas facil-. La correccion haria falta si el
+veredicto fuese "alguna prueba pasa", que es justo lo que no se hace.
+"""
+
+###############################################################################
+# UNILATERAL, Y NO ES UN DETALLE
+#
+# Todas las pruebas contrastan H0 "sin ventaja" contra H1 "ventaja POSITIVA".
+#
+# Con contraste bilateral, una estrategia que pierde en los seis folds produce
+# p = 0.031 y quedaria sellada como significativa. Lo seria: pierde de forma muy
+# consistente. Pero "significativamente distinto de cero" y "validado" solo
+# coinciden si el contraste mira en una direccion, y una bateria que premia a un
+# perdedor consistente es peor que no tener bateria.
+###############################################################################
+
+###############################################################################
+# POTENCIA MINIMA
+#
+# El numero minimo de folds NO se declara: se DERIVA de alpha.
+#
+# Con n folds, el p-valor unilateral mas pequeno que una prueba de signos puede
+# producir es 1/2^n, y se alcanza solo cuando los n folds son positivos. Si ese
+# minimo ya es mayor que alpha, ninguna estrategia puede pasar la prueba por
+# buena que sea: el rechazo lo causa el diseno del walk-forward, no la
+# estrategia.
+#
+#   n=3  ->  0.1250     n=5  ->  0.0313     n=7  ->  0.0078
+#   n=4  ->  0.0625     n=6  ->  0.0156     n=10 ->  0.0010
+#
+# Con alpha=0.05 hacen falta 5 folds; con alpha=0.01 hacen falta 7.
+#
+# Se deriva en vez de declararse para que los dos numeros no puedan
+# desincronizarse: bajar alpha a 0.01 sin subir el minimo de folds produciria
+# una bateria que rechaza todo y parece rigurosa.
+###############################################################################
+
+[power]
+enforce_minimum_folds = true
+
+[power.rationale]
+enforce_minimum_folds = """
+Cuando la potencia es insuficiente el veredicto es NO CONCLUYENTE y no
+"rechazado". Son situaciones distintas que exigen acciones distintas: un
+rechazo dice "esta estrategia no vale"; una potencia insuficiente dice "este
+experimento no puede responder la pregunta, repartelo en mas folds". Colapsar
+las dos en un `False` haria descartar candidatos por un defecto del montaje.
+"""
+
+###############################################################################
+# COSTE DE COMPUTO
+#
+# Parametros de metodo, no de negocio: cambiarlos no altera que se considera
+# significativo, solo como se aproxima el p-valor.
+###############################################################################
+
+[permutation]
+exact_max_folds = 16
+monte_carlo_samples = 20000
+
+[permutation.rationale]
+exact_max_folds = """
+Hasta 16 folds se enumeran las 2^16 = 65.536 asignaciones de signo completas y
+el p-valor es EXACTO: sin muestreo, sin semilla y sin variabilidad entre
+corridas. Por encima el enumerado deja de caber en memoria y se pasa a Monte
+Carlo. El resultado declara siempre cual de los dos se uso, porque un p-valor
+exacto y uno estimado no merecen la misma confianza y la diferencia no debe
+quedar oculta.
+"""
+monte_carlo_samples = """
+20.000 muestras dan un error estandar de ~0.0015 alrededor de p=0.05, un orden
+de magnitud por debajo del umbral. Subirlo mas afina un numero que ya no
+cambia ninguna decision.
+"""

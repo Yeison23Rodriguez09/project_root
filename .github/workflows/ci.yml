@@ -1,0 +1,302 @@
+# Puerta de verificacion del proyecto.
+#
+# `configs/architecture.toml` declara desde su cabecera que el contrato gobierna
+# "la puerta de CI", y `configs/delivery.toml` hace de `ci_green` un criterio
+# `blocking` para TODA capacidad. Hasta este fichero esa puerta no existia: la
+# gobernanza -1800 tests, validador AST, esquema de ADR- solo podia romper el
+# build local de quien lo ejecutara, y "esta verde" era una afirmacion sobre la
+# maquina de una persona.
+#
+# Orden deliberado. Lo barato y global primero -lint, tipos-, luego la matriz de
+# ejecucion, y solo despues el artefacto. `build`, `package` y `smoke` van
+# separados a proposito: si algo falla, el job que falla dice si el problema es
+# de CONSTRUCCION, de INSTALACION o de EJECUCION, sin tener que leer el log.
+#
+# Lo que este pipeline NO hace todavia, y esta anotado para que la ausencia sea
+# visible en lugar de silenciosa:
+#
+#   * no gatea `mypy scripts`  -> 6 errores conocidos, ver job `types`
+#   * no ejercita `qp doctor` desde el wheel -> QP-010, ver job `smoke`
+#   * no GATEA cobertura -> se mide y se publica, ver job `coverage`
+#
+# NOTA IMPORTANTE: este workflow no fija `PYTHONIOENCODING`. Es deliberado. La
+# consola por defecto de Windows es cp1252 y ahi es donde `qp doctor` terminaba
+# con UnicodeEncodeError; forzar UTF-8 desde el entorno enmascararia justo la
+# clase de defecto que este pipeline debe detectar.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+# Una serie de commits seguidos no debe dejar seis pipelines compitiendo por los
+# mismos runners. Se conserva siempre el ultimo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # `bash` tambien en los runners de Windows: un solo dialecto de shell para
+    # todo el fichero evita mantener dos versiones de cada paso.
+    shell: bash
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Estilo. Lo mas barato, primero.
+  # ---------------------------------------------------------------------------
+  lint:
+    name: lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar el proyecto
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      # Una sola pasada: `target-version = "py311"` de pyproject ya le dice a ruff
+      # contra que sintaxis analizar, asi que repetirlo por version de Python no
+      # aportaria una comprobacion distinta.
+      - name: ruff
+        run: ruff check .
+
+  # ---------------------------------------------------------------------------
+  # 2. Tipos.
+  # ---------------------------------------------------------------------------
+  types:
+    name: types (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Solo 3.13. Los stubs de numpy 2.5 usan sintaxis PEP 695 (`type X = ...`),
+      # que exige 3.12+, de modo que `mypy --python-version 3.11` aborta al leer
+      # `numpy/__init__.pyi` antes de analizar una sola linea propia. Es una
+      # limitacion de la cadena de herramientas y NO una incompatibilidad del
+      # paquete: los `.pyi` no se ejecutan nunca. La compatibilidad real de
+      # ejecucion la verifica el job `tests` en 3.11, 3.12 y 3.13.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar el proyecto
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: mypy (codigo de produccion)
+        run: mypy app
+
+      # Informativo, NO gate. `scripts/consolidate_architecture.py` acumula 6
+      # errores, uno de ellos un `# type: ignore[union-attr]` que mypy declara
+      # inutil y que ademas oculta un `attr-defined` real. Corregirlos es trabajo
+      # del sprint de tipado; hacerlos bloqueantes hoy dejaria el pipeline rojo
+      # desde el primer dia por deuda ya conocida.
+      #
+      # Se ejecuta igualmente para que la deuda aparezca en cada corrida en lugar
+      # de desaparecer de la vista. El dia que llegue a cero, este paso pasa a ser
+      # gate y se retira `continue-on-error`.
+      - name: mypy (herramientas de gobernanza, deuda conocida)
+        run: mypy scripts
+        continue-on-error: true
+
+  # ---------------------------------------------------------------------------
+  # 3. Suite. Es la unica matriz real del pipeline.
+  # ---------------------------------------------------------------------------
+  tests:
+    name: tests (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Sin `fail-fast`: si 3.11 falla se quiere saber tambien si 3.12 y 3.13
+      # fallan, porque no es la misma investigacion.
+      fail-fast: false
+      matrix:
+        # Windows no es opcional. El defecto que rompia `qp doctor` -el criterio
+        # de aceptacion de la Fase 3- era invisible en Linux, y por eso llego
+        # hasta el criterio sin que nada lo detectara.
+        os: [ubuntu-latest, windows-latest]
+        # Verifica de verdad `requires-python = ">=3.11"`, que hasta ahora era una
+        # afirmacion sin comprobar en ninguna parte.
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar el proyecto
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: pytest
+        run: pytest
+
+      # Criterio de aceptacion de la Fase 3, literal en BUILD.md:
+      #     git clone ... && pip install -e . && qp doctor -> Platform READY
+      # Se ejecuta aqui, sobre el checkout, porque es la forma de instalacion que
+      # el criterio nombra. Desde un wheel todavia no pasa: ver el job `smoke`.
+      - name: qp doctor (criterio de aceptacion de la Fase 3)
+        run: qp doctor
+
+  # ---------------------------------------------------------------------------
+  # 3.5 Cobertura. Se MIDE y se publica; no gatea.
+  #
+  # La DoD de `configs/delivery.toml` marca `coverage_met` como `mandatory` y NO
+  # `blocking`, con su motivo escrito: un umbral convertido en barrera dura
+  # empuja a escribir tests de relleno que suben el numero sin detectar nada.
+  # Aqui se mide para que el numero exista y se vea evolucionar, que es lo que
+  # faltaba: hasta ahora no se habia medido NUNCA.
+  #
+  # ADVERTENCIA SOBRE EL NUMERO, para que no se lea de mas: `tests/test_cli.py`
+  # ejercita los comandos en SUBPROCESOS -es la unica forma de comprobar el
+  # codigo de salida bajo una consola cp1252-, y la cobertura no ve lo que
+  # ocurre dentro de ellos. Los modulos de `app/interfaces/cli/` aparecen por
+  # tanto muy por debajo de lo que estan realmente probados. La cifra es un
+  # SUELO, no la verdad.
+  # ---------------------------------------------------------------------------
+  coverage:
+    name: coverage (informativo)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Instalar el proyecto
+        run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
+
+      - name: Medir
+        run: pytest --cov --cov-report=term --cov-report=xml
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura
+          path: coverage.xml
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 4. Construccion del artefacto.
+  # ---------------------------------------------------------------------------
+  build:
+    name: build (wheel + sdist)
+    needs: [lint, types, tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Construir
+        run: python -m pip install --upgrade pip build && python -m build
+
+      - name: Inventario del artefacto
+        run: ls -l dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: distribuciones
+          path: dist/
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # 5. Instalacion. Job aparte para que un fallo aqui signifique "el paquete no
+  #    se instala" y no se confunda con "el paquete no se construye".
+  # ---------------------------------------------------------------------------
+  package:
+    name: package (instala el wheel)
+    needs: [build]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      # SIN checkout, a proposito. Si el arbol de fuentes estuviera presente,
+      # `app` podria resolverse desde el en lugar de desde site-packages y el job
+      # daria verde sin haber probado el wheel. Ese error de metodo ya se cometio
+      # una vez al verificar esto a mano.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: distribuciones
+          path: dist
+
+      - name: Instalar el wheel
+        run: python -m pip install --upgrade pip && python -m pip install dist/*.whl
+
+      - name: Confirmar que quedo instalado
+        run: python -m pip show quantplatform
+
+  # ---------------------------------------------------------------------------
+  # 6. Ejecucion. Un fallo aqui significa "se instala pero no funciona".
+  # ---------------------------------------------------------------------------
+  smoke:
+    name: smoke (ejecuta desde el wheel)
+    needs: [package]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      # Sin checkout, por el mismo motivo que en `package`.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: distribuciones
+          path: dist
+
+      - name: Instalar el wheel
+        run: python -m pip install --upgrade pip && python -m pip install dist/*.whl
+
+      - name: El paquete importa
+        run: python -c "import app; print(app.__file__)"
+
+      - name: qp --help
+        run: qp --help
+
+      - name: qp version
+        run: qp version
+
+      # DELIBERADAMENTE AUSENTE: `qp doctor` desde el wheel.
+      #
+      # Hoy termina con `Platform NOT READY - 5 hallazgos de gobernanza` y codigo
+      # 1, porque `configs/` no viaja en el paquete y `Preflight` exige cinco
+      # contratos presentes. Es el hallazgo QP-010 y su correccion tiene sprint
+      # propio: exige decidir si `configs/` es dato de paquete o si `qp` requiere
+      # un directorio de proyecto localizado explicitamente.
+      #
+      # No se anade aqui un job condenado a fallar por un defecto ya conocido y
+      # planificado: un pipeline que nace rojo se ignora desde el primer dia. La
+      # ausencia queda escrita para que el hueco sea visible y no se confunda con
+      # cobertura. Cuando QP-010 se cierre, este paso se anade y `qp doctor` se
+      # verifica tambien desde una instalacion limpia.

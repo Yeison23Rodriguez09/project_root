@@ -1,0 +1,58 @@
+###############################################################################
+# BACKTEST.TOML - Parametros por defecto de la simulacion historica
+#
+# Solo lo que la estrategia NO declara por si misma. Un `StrategySpec` lleva su
+# propio bloque `risk`, y lo que ponga alli manda sobre esto: los valores de
+# aqui son el punto de partida de una estrategia que no dice nada, no una
+# politica que se le imponga.
+###############################################################################
+
+[meta]
+version = 1
+
+###############################################################################
+# DISTANCIA AL STOP
+#
+# El stop se mide en multiplos de ATR y no en puntos fijos. Un stop de cien
+# puntos es holgado en una sesion tranquila y ruido en una agitada, y el mismo
+# numero significa cosas distintas en cada instrumento. El ATR lo expresa en la
+# unidad que importa: cuanto se mueve ESTE mercado ahora.
+###############################################################################
+
+[stop]
+atr_period = 14
+atr_multiple = 2.0
+target_atr_multiple = 0.0
+
+[stop.rationale]
+atr_period = """
+Catorce barras es el periodo con el que Wilder definio el ATR y con el que se
+publican casi todas las referencias. No tiene ninguna propiedad optima: se
+declara para que discovery pueda cambiarlo, no porque sea el mejor.
+"""
+atr_multiple = """
+Dos ATR es la distancia por debajo de la cual el ruido normal de la serie barre
+el stop sin que la idea haya fallado. Medido sobre EURUSD M15, un ATR son unos
+0.04% del precio, asi que dos ATR son unos 0.08%: por encima del coste de ida y
+vuelta y por debajo de un movimiento con sentido direccional.
+"""
+target_atr_multiple = """
+Cero significa SIN objetivo: la posicion se cierra por senal o por stop. Es el
+defecto porque un objetivo fijo trunca las operaciones ganadoras, y una
+estrategia de seguimiento de tendencia vive precisamente de las pocas que
+corren mucho. Ponerlo distinto de cero es una decision de la estrategia.
+"""
+
+###############################################################################
+# CAPITAL
+###############################################################################
+
+[account]
+initial_equity = 10000.0
+
+[account.rationale]
+initial_equity = """
+Capital de partida de una corrida historica. No pretende ser el de ninguna
+cuenta: existe para que el dimensionamiento fraccional tenga una base y para
+que las curvas de equity de dos estrategias sean comparables entre si.
+"""

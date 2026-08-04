@@ -1,0 +1,259 @@
+id = "ADR-0013"
+title = "El primer recorrido ejecutable, y la identidad de un artefacto de corrida"
+status = "accepted"
+date = "2026-08-02"
+owner = "Platform"
+
+affected_packages = [
+    "application", "interfaces", "container", "config",
+    "shared", "execution", "research", "analytics", "storage",
+]
+
+context = """
+Hasta esta etapa la plataforma tenia todos los motores construidos y ninguno
+compuesto: `build_platform` registraba seis componentes -reloj, configuracion,
+bus y tres catalogos vacios- y el unico camino invocable de extremo a extremo era
+`qp download`. Features, signals, strategies, backtest, riesgo, llenados y
+analytics existian, estaban tipados y tenian tests, pero solo se ejercitaban
+DESDE los tests.
+
+Esa situacion tiene un nombre en `configs/delivery.toml`, que la usa como
+criterio para no cerrar tres capacidades: "un adaptador que nadie inyecta es un
+adaptador que en produccion no existe". Y tiene una consecuencia mas seria: sin
+un recorrido real, la pregunta que la Fase 4.5 debe responder -"puede construirse
+un sistema real sin tocar la arquitectura"- no se puede ni plantear.
+
+Tres restricciones de la matriz condicionaban cualquier diseno aqui, y las tres
+resultaron ser las correctas:
+
+* `interfaces` solo ve `core`, `application` y `container`. NO ve `shared`, de
+  modo que la CLI no puede nombrar un puerto para pedirselo al contenedor.
+* `application` no ve `config`. Un caso de uso que pudiera abrir un fichero de
+  configuracion introduciria una entrada no declarada, y el resultado dejaria de
+  depender solo de (datos, configuracion, semilla).
+* `container` no ve `application`. La composicion de casos de uso no puede vivir
+  en la raiz de composicion de la plataforma.
+
+El intento de saltarse la primera -importar `app.shared.ports` desde el comando-
+lo rechazo `test_matrix_is_respected` antes de llegar a ninguna parte.
+"""
+
+decision = """
+A. El caso de uso `application.backtest`, con la anatomia ya establecida por la
+   cadena de descarga: `request` -> `service` -> `response`, mas `runner` para la
+   composicion.
+
+   `BacktestApplicationService` contiene la SECUENCIA y ninguna regla: pide las
+   barras al catalogo, el instrumento al catalogo de instrumentos, la simulacion
+   al motor, la medida a analytics y la persistencia al almacen. Ninguna de las
+   cinco piezas conoce a las otras.
+
+   El motor entra como clase concreta y no como `BacktestEnginePort`. El puerto
+   promete `(trades, equity)` y el motor produce ademas lo que hace DESCONFIAR
+   del resultado -barras ambiguas, rechazos de riesgo-, que es justo lo que hay
+   que sellar en el artefacto. Ampliar el puerto obligaria a todo consumidor a
+   cargar con ese detalle; consumirlo por el puerto lo perderia.
+
+B. `PlatformServices` y `platform_services()` en `container.bootstrap`.
+
+   Es la respuesta a la primera restriccion. La CLI recibe piezas YA RESUELTAS
+   -reloj, catalogo de instrumentos, huella de configuracion- sin nombrar ningun
+   puerto. La alternativa era declarar `shared` como dependencia de la interfaz,
+   y entonces cualquier comando podria resolver cualquier puerto y saltarse los
+   casos de uso.
+
+   Su defecto es el modo `deterministic`, no `research`: quien pide servicios de
+   plataforma para EJECUTAR algo debe recibir un reloj detenido, porque el
+   instante entra en la identidad de la corrida.
+
+C. `InstrumentCatalogPort` se registra en `build_platform`. Es el primer
+   adaptador de dominio que la plataforma inyecta de verdad, y sube el censo de
+   componentes de seis a siete.
+
+   Perezoso -`register` y no `register_instance`- para que `qp doctor` siga
+   componiendo en una maquina con `configs/symbols/` vacio: el fallo aparece al
+   pedir un instrumento, no al arrancar cualquier comando.
+
+D. Las estrategias se declaran en `configs/strategies/*.toml` y las lee
+   `config.strategies.load_strategy_spec`, por analogia exacta con
+   `config.instruments`: una composicion de estrategia es declaracion, y `config`
+   es por ADR-0005 el unico paquete autorizado a abrir un fichero de
+   configuracion.
+
+   `bootstrap` lo reexporta sin envolverlo, porque es el unico camino por el que
+   `interfaces` puede alcanzarlo. Ese modulo ya es esa frontera para la
+   configuracion via `load_configuration`; la estrategia entra por la misma
+   puerta en lugar de abrir una segunda.
+
+E. La identidad de un artefacto de corrida es `RunFingerprint.digest` mas el
+   modelo de llenado, NO el `run_id`.
+
+   Es la correccion de un defecto que solo aparecio al EJECUTAR. `derive_run_id`
+   compone configuracion, codigo, semilla e instante; con el reloj detenido -el
+   que exige la reproducibilidad- dos corridas que difieran en estrategia, en
+   dataset o en supuesto de ejecucion comparten identificador y se sobrescriben
+   en silencio. Se observo con `--fills ADVERSE`: producia un neto distinto
+   -14.608 frente a 15.287- y escribia ENCIMA del resultado optimista.
+
+   `RunFingerprint.digest` si incluye dataset y estrategia, y su contrato dice
+   literalmente que es "el identificador que responde: es esto exactamente la
+   misma corrida". No se toca `derive_run_id`: el `run_id` sigue identificando la
+   EJECUCION y viaja en la procedencia; lo que cambia es que la RUTA del
+   artefacto cuelgue de lo que determina el resultado.
+
+F. `ExecutionSimulatorPort` gana una propiedad `name`.
+
+   Sin ella el artefacto no registraba con que supuesto de ejecucion se produjo,
+   que es un agujero de auditabilidad independiente de la colision: dos numeros
+   distintos de la misma estrategia sobre los mismos datos, y nada que lo
+   explique. El nombre se pregunta al simulador en lugar de pasarse por
+   argumento para que no existan dos fuentes: un parametro paralelo podria decir
+   `OPEN` mientras el motor simula `ADVERSE`.
+
+   El modelo de llenado va como ultimo tramo de la ruta y no dentro del hash, de
+   modo que las dos ejecuciones del mismo experimento quedan una al lado de la
+   otra. Compararlas es exactamente para lo que el puerto declara que existen los
+   dos modelos.
+
+G. `qp backtest` expone el recorrido. Compone en modo `deterministic`, de forma
+   que dos corridas identicas producen el mismo artefacto byte a byte.
+"""
+
+consequences = """
+Se gana el primer recorrido ejecutable completo de la plataforma, con adaptadores
+reales de principio a fin: Parquet en disco, catalogo de ficheros, motor,
+politica de riesgo, simulador de llenado, analytics y almacen de artefactos. Es
+la precondicion de la Fase 4.5, que no podia ni plantearse sin el.
+
+Se gana que la reproducibilidad sea DEMOSTRABLE y no una afirmacion: dos
+ejecuciones de `qp backtest` con la misma entrada producen el mismo `run_id` y el
+mismo fichero, verificado por hash sobre la salida real y no solo en un test.
+
+Se gana que el artefacto lleve los cuatro componentes que P1 exige -semilla,
+huella de configuracion, huella de datos y version del codigo- mas la estrategia
+completa y el supuesto de ejecucion. Una corrida archivada puede repetirse sin
+preguntarle nada a quien la lanzo.
+
+Se paga con una asimetria que conviene conocer: `qp download` sigue construyendo
+su propio `SystemClock()` en lugar de pedirlo a la plataforma. Funciona, pero
+deja fuera la eleccion de reloj por modo. `platform_services` es el camino por el
+que se corregira, y hasta entonces los dos comandos obtienen su reloj de sitios
+distintos.
+
+Queda una duplicacion real y anotada, que este ADR NO resuelve: los limites de
+riesgo viven a la vez en `configs/risk.toml` y en los defectos de `RiskLimits`, y
+el capital inicial en `configs/backtest.toml` y en el comando. La cadena de
+resolucion de configuracion solo carga `global`, el perfil y las capas de
+entorno, asi que ninguno de los dos ficheros lo lee nadie todavia. Corregirlo
+exige ampliar esa cadena, lo que cambia `ConfigFingerprint` y por tanto la
+identidad de toda corrida anterior: es trabajo con ADR propio.
+"""
+
+references = [
+    "app/application/backtest/service.py",
+    "app/application/backtest/runner.py",
+    "app/config/strategies.py",
+    "app/container/bootstrap.py",
+    "app/interfaces/cli/backtest_cmd.py",
+    "app/shared/ports.py",
+    "configs/strategies/ema_cross_m15.toml",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_backtest_flow.py"
+description = """
+La bateria ejercita el recorrido con adaptadores REALES y sin un solo doble. Un
+doble en cada extremo verificaria que el servicio llama a lo que dice llamar; lo
+que aqui se comprueba es si las piezas encajan cuando ninguna sabe de las otras.
+
+Cubre, ademas del camino feliz:
+
+  * que el artefacto lleve los cuatro componentes de procedencia que P1 exige;
+  * que dos corridas identicas produzcan el mismo identificador y el mismo
+    fichero BYTE A BYTE, que es la unica forma de verificar P1 -ejecutando dos
+    veces, no razonando sobre el codigo-;
+  * que los dos modelos de llenado NO se sobrescriban y que cada artefacto diga
+    cual lo produjo, que es el defecto que encontro la ejecucion real;
+  * que dos estrategias distintas sobre el mismo dataset no compartan artefacto,
+    que era la misma colision por otra via;
+  * que el modelo adverso nunca produzca un neto mejor que el optimista, sin lo
+    cual el modelo estaria invertido y el backtest seria optimista sin que nada
+    lo delatara;
+  * que un nombre de modelo mal escrito se RECHACE en lugar de caer en la
+    simulacion mas favorable;
+  * que una huella no registrada y un instrumento no declarado fallen con el
+    error de su pieza, comprobando el MENSAJE y no solo el tipo;
+  * que el contenedor entregue de verdad el catalogo de instrumentos y un reloj
+    detenido.
+
+`tests/test_cli.py` fija ademas el codigo de salida de `qp backtest` sin
+argumentos: 2, uso incorrecto, igual que `qp download`.
+"""
+
+[rollback]
+description = """
+`git revert` del commit de la etapa. Se retiran el caso de uso, el comando, el
+lector de estrategias, `PlatformServices`, el registro del catalogo de
+instrumentos y la propiedad `name` del puerto de simulacion.
+
+Los artefactos ya escritos bajo `artifacts/backtests/` quedarian huerfanos y
+pueden borrarse sin perdida: son derivados reproducibles a partir del dataset, la
+estrategia y la semilla que ellos mismos declaran.
+
+Revertir E y F por separado NO es aconsejable aunque sea posible: devolveria la
+colision silenciosa de artefactos, que es un defecto de reproducibilidad y no una
+preferencia de diseno.
+"""
+effort = "media hora"
+
+[[alternatives]]
+option = "Declarar `shared` como dependencia de `interfaces` para que la CLI resuelva puertos"
+rejected_because = """
+Es lo que pedia el primer intento y lo que la matriz rechazo. Habria funcionado y
+habria costado una linea en un contrato congelado.
+
+El precio real no es esa linea: es que cualquier comando pasaria a poder resolver
+cualquier puerto y hablar directamente con un adaptador, saltandose los casos de
+uso. La prohibicion "la interfaz NO ve motores" quedaria en una recomendacion, y
+la friccion que impide el atajo es justamente lo que se compra al declararla.
+"""
+
+[[alternatives]]
+option = "Que el caso de uso lea el fichero de la estrategia"
+rejected_because = """
+`application` no declara `config` en su `depends`, y la regla que hay detras no
+es formal: un caso de uso capaz de abrir un fichero introduce una entrada no
+declarada, y el resultado deja de depender solo de (datos, configuracion,
+semilla).
+
+El servicio recibe un `StrategySpec` -objeto de dominio- y no sabe si vino de un
+fichero, de discovery o del zoo. Esa ignorancia es lo que permitira que los tres
+recorran exactamente el mismo camino cuando discovery empiece a producir
+candidatos.
+"""
+
+[[alternatives]]
+option = "Mantener el `run_id` como identidad del artefacto y anadirle un sufijo"
+rejected_because = """
+Trata el sintoma. El `run_id` no incluye estrategia ni dataset por diseno -
+identifica una EJECUCION, y con reloj real dos ejecuciones nunca colisionan-, de
+modo que un sufijo tapado encima seguiria dejando fuera la pregunta que el
+artefacto debe responder: "es esto exactamente la misma corrida".
+
+`RunFingerprint` existe para responderla y estaba ya escrito, sin consumidores.
+Usarlo no anade ninguna abstraccion: retira una que estaba sin usar.
+"""
+
+[[alternatives]]
+option = "Deducir el nombre del modelo de llenado con `type(simulator).__name__`"
+rejected_because = """
+Evita tocar el puerto, y a cambio ata la procedencia de un artefacto al nombre de
+una clase de Python: renombrar `OpenFillSimulator` cambiaria en silencio la ruta
+de todos los artefactos futuros y rompelaria la comparacion contra los
+anteriores.
+
+Un modelo de ejecucion que va a quedar sellado en un registro auditable tiene que
+saber decir su nombre. Es una propiedad del contrato, no un detalle de la
+implementacion.
+"""

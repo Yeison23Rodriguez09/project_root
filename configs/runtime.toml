@@ -11,9 +11,15 @@
 #
 # Aqui la respuesta es una linea: `live.require_promoted_state = true`.
 #
-# Los modos son ortogonales al entorno del broker. `live` con broker demo sigue
-# siendo modo `live`: las mismas restricciones se aplican, porque la diferencia
-# entre demo y real no debe cambiar el comportamiento del sistema.
+# Los modos son ortogonales al entorno del broker: la diferencia entre una cuenta
+# de demostracion y una real no cambia el COMPORTAMIENTO del sistema. `demo`
+# hereda de `live` y no relaja una sola restriccion, de modo que esa regla sigue
+# intacta (ADR-0017).
+#
+# Lo que `demo` anade no es una excepcion sino un cerrojo: exige que la cuenta
+# del terminal sea de demostracion y rechaza conectar si no lo es. Sin ese modo,
+# la unica forma de operar contra una demo seria arrancar en `live` y confiar en
+# que el terminal apunte donde toca.
 ###############################################################################
 
 [meta]
@@ -161,6 +167,29 @@ no es el mismo que evaluo la `i-1`, y entonces la auditoria posterior no puede
 reconstruir la decision.
 """
 
+[modes.demo]
+inherits = "live"
+purpose = "Integracion tecnica contra un terminal real, sobre cuenta de demostracion."
+require_demo_account = true
+rationale = """
+Hereda de `live` y anade una exigencia; no relaja NINGUNA (ADR-0017). Es la
+propiedad que hace legitimo este modo: `demo` no es `live` con menos controles,
+es `live` con uno mas.
+
+La alternativa que se descarto era un modo de integracion que enviara ordenes
+SIN estado promovido, para poder validar el adaptador antes de que existiera la
+promocion. Se rechazo por el mismo motivo que `paper` ya tiene escrito: un modo
+que acepta candidatos sin validar es un atajo para llegar a produccion "solo
+para probar", y ese atajo se usa siempre. La comodidad de validar antes el
+adaptador no compensa abrir la unica puerta que el proceso cientifico protege.
+
+`require_demo_account` NO se satisface leyendo este fichero. Se verifica contra
+el TERMINAL: `account_info().trade_mode` dice si la cuenta es de demostracion,
+de concurso o real, y el adaptador rechaza conectar si no es de demostracion.
+Una bandera en un TOML es una promesa; el terminal es un hecho, y es lo unico
+que detiene a quien apunte el terminal a una cuenta real por descuido.
+"""
+
 ###############################################################################
 # MATRIZ DE PAQUETES POR MODO
 #
@@ -190,6 +219,14 @@ live = [
     "execution", "broker", "storage", "monitoring", "promotion",
     "application", "interfaces", "live",
 ]
+# Identico a `live` salvo por `live` mismo: `demo` no arranca el motor de
+# ejecucion continua, solo ejercita la cadena hasta el broker. Incluye
+# `promotion` porque debe LEER el registro de aprobacion que exige.
+demo = [
+    "core", "domain", "shared", "research", "analytics", "portfolio",
+    "execution", "broker", "storage", "monitoring", "promotion",
+    "application", "interfaces",
+]
 
 ###############################################################################
 # ESTADOS DE CICLO DE VIDA ADMITIDOS POR MODO
@@ -202,6 +239,7 @@ research = ["candidate", "validated", "promoted", "live", "retired", "rejected"]
 benchmark = ["candidate", "validated", "promoted"]
 paper = ["promoted", "live"]
 live = ["promoted", "live"]
+demo = ["promoted", "live"]
 
 [allowed_lifecycle_states.rationale]
 research = """

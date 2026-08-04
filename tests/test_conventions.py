@@ -297,9 +297,7 @@ def test_dataclasses_are_frozen_and_slotted(path: Path) -> None:
     require_frozen = determinism().get("require_frozen_dataclasses", True) and _in_scope(
         "require_frozen_dataclasses", path
     )
-    require_slots = determinism().get("require_slots", True) and _in_scope(
-        "require_slots", path
-    )
+    require_slots = determinism().get("require_slots", True) and _in_scope("require_slots", path)
     if not (require_frozen or require_slots):
         pytest.skip("Fuera de alcance")
 

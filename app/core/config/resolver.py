@@ -63,9 +63,7 @@ class ConfigLayer:
         line = self.lines.get(key)
         if line is None:
             return self.origin
-        return Origin(
-            priority=self.origin.priority, locator=self.origin.locator, line=line
-        )
+        return Origin(priority=self.origin.priority, locator=self.origin.locator, line=line)
 
     def __len__(self) -> int:
         return len(self.values)

@@ -1,0 +1,221 @@
+id = "ADR-0009"
+title = "El sello de los artefactos derivados no depende del tiempo fisico"
+status = "accepted"
+date = "2026-07-30"
+owner = "Platform"
+
+# Vacio a proposito, y no por omision: esta decision no toca ningun paquete de
+# `app/`. Lo que cambia es la generacion de artefactos derivados, que vive en
+# `scripts/` y no es un paquete gobernado por la matriz. Los ficheros implicados
+# se listan en `references` para que quien revise esta decision sepa donde mirar.
+affected_packages = []
+
+context = """
+`configs/architecture.toml` declara tres artefactos derivados y los sostiene en P7:
+
+    [derived]
+    principle = "P7"
+    generator = "scripts/generate_docs.py"
+    artifacts = ["docs/ARCHITECTURE.md", "reports/architecture_report.md",
+                 "reports/dependency_graph.svg"]
+
+`configs/delivery.toml` convierte esa sincronia en el criterio `docs_regenerated`,
+con `blocking = true`, y lo verifica `tests/test_governance.py::test_derived_docs_
+are_in_sync` comparando el fichero en disco BYTE A BYTE con la salida del
+generador.
+
+Y el generador inyecta la fecha del dia en esa salida:
+
+    scripts/generate_docs.py:232
+        f"\\n---\\n\\nGenerado el {datetime.now(UTC).strftime('%Y-%m-%d')} por "
+
+    scripts/consolidate_architecture.py:724
+        f"Generado: {datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')}\\n\\n"
+
+La consecuencia es mecanica: el criterio bloqueante se pone rojo en cada cambio
+de dia UTC sin que ningun contrato haya cambiado. En el momento de redactar esta
+decision era la UNICA falla de los 1821 tests de la suite:
+
+    FAILED tests/test_governance.py::test_derived_docs_are_in_sync
+    E   - l 2026-07-30 por `scripts/generate_docs.py`.
+    E   + l 2026-07-29 por `scripts/generate_docs.py`.
+
+Y la erosion ya habia empezado: el arbol de trabajo contenia una edicion MANUAL
+de `docs/ARCHITECTURE.md` -solo la fecha, de 2026-07-28 a 2026-07-29- hecha para
+callar el test. Es exactamente la senal que `BUILD.md` lista como degradacion del
+proceso: "Documentacion editada a mano -> un artefacto derivado se volvio fuente".
+
+El fondo del problema es un conflicto entre principios materializado en una
+linea: el mecanismo que implementa P7 -regenerar el artefacto- viola P6 -sin
+reloj de pared- e impide P1 -dos ejecuciones producen el mismo resultado-. No es
+un despiste de implementacion. Un criterio bloqueante que se pone rojo solo por
+el paso del tiempo acaba desactivado, y con el se lleva la unica verificacion
+mecanica de P7.
+
+Observacion que decide la eleccion: la fecha del reloj NUNCA pudo cumplir la
+funcion de versionado que aparentaba cumplir. Dos generaciones el mismo dia desde
+contratos DISTINTOS producen el mismo sello. Como dato informativo es redundante
+-la antiguedad de un fichero versionado esta en git- y como dato de versionado es
+incapaz. En las dos lecturas posibles, la fecha es el dato equivocado.
+"""
+
+decision = """
+El pie de los artefactos derivados deja de llevar marca temporal.
+
+Declara unicamente el generador que lo produjo y la version del contrato del que
+se derivo -`configs/architecture.toml` `[meta].version`-, que es un dato
+deterministico, ya presente en el corpus y con significado real: identifica de
+que arquitectura es vista el documento.
+
+Con ello el generador pasa a ser una funcion pura de los contratos:
+
+    contratos -> generador -> artefacto
+
+en lugar de
+
+    contratos + hora del sistema -> generador -> artefacto
+
+La antiguedad del fichero sigue existiendo donde le corresponde: en `git log`.
+Duplicarla dentro del fichero era una segunda descripcion del mismo hecho, y eso
+es lo que P5 prohibe.
+
+Alcance cerrado. Se modifica el pie de `scripts/generate_docs.py` y el de
+`scripts/consolidate_architecture.py`, y se regeneran los tres artefactos. NO se
+toca `configs/architecture.toml`: el bloque `[derived]` no menciona la fecha, de
+modo que esta decision no altera ningun contrato. NO se toca
+`tests/test_governance.py::test_derived_docs_are_in_sync`: que ese test pase sin
+haber sido modificado es la prueba de que la correccion es real y no un ajuste de
+la verificacion para que encaje el codigo, que es lo que P10 prohibe.
+"""
+
+consequences = """
+Se gana determinismo verificable. Dos ejecuciones del generador producen salida
+identica bit a bit en cualquier maquina y cualquier dia, y `docs_regenerated`
+pasa de ser un criterio que caduca cada 24 horas a uno estable. Es la
+precondicion de que exista una puerta de CI: un pipeline cuyo primer fallo es la
+fecha de ayer se ignora desde el primer dia.
+
+Se gana ademas la propiedad que P7 buscaba y no tenia: a partir de ahora, si el
+test de sincronia falla es porque un contrato cambio y nadie regenero. Antes ese
+mensaje era indistinguible del paso del tiempo, y por eso la respuesta aprendida
+fue editar el fichero a mano.
+
+Se pierde la respuesta a "de cuando es este documento" dentro del propio fichero.
+Se anota porque es real, aunque el coste sea nominal: el dato queda en `git log`
+del artefacto, y `[meta].version` del contrato -que si se renderiza- responde la
+pregunta que de verdad importa, que es de que arquitectura es vista.
+
+Queda abierta y NO adoptada la via superior: un sello derivado de la huella de
+contenido de `configs/`, que convertiria el pie en una comprobacion en lugar de
+una etiqueta. Se descarta HOY por una razon concreta, no por coste: ningun
+comando de la plataforma compararia esa huella con la de `configs/`, asi que
+seria un dato declarado sin consumidor -el patron que este proyecto viene
+corrigiendo-. Se reconsiderara cuando exista quien lo lea, por ejemplo un
+`qp doctor --check-derived`.
+
+Riesgo asumido: la regeneracion de `reports/` arrastra cuatro commits de desfase
+acumulado. `reports/duplicated_symbols.txt` todavia nombraba
+`app.interfaces.cli.doctor`, un modulo borrado en el commit 4f4c6a3. El diff de
+la regeneracion es por tanto mayor de lo que sugiere el cambio, y se revisa
+aparte del cambio del generador.
+"""
+
+references = [
+    "scripts/generate_docs.py",
+    "scripts/consolidate_architecture.py",
+    "docs/ARCHITECTURE.md",
+    "reports/architecture_report.md",
+    "reports/dependency_graph.svg",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_governance.py::test_derived_docs_are_in_sync"
+description = """
+El test compara `docs/ARCHITECTURE.md` byte a byte con `generate_docs.render()`.
+Antes de esta decision fallaba en cada cambio de dia UTC; despues pasa de forma
+estable, y sigue fallando -como debe- si alguien edita el artefacto a mano o
+cambia un contrato sin regenerar.
+
+La validacion NO es "el test pasa". Es "el test pasa con la fecha del sistema
+adelantada 48 horas y sin regenerar nada". La distincion es el fondo de esta
+decision: un test que pasa hoy y falla manana no verifica nada, y el criterio
+tiene que expresar la propiedad -independencia del reloj- y no la observacion
+puntual.
+
+Lo verifica de forma directa `tests/test_governance.py::test_derived_docs_are_
+independent_of_the_clock`, que renderiza dos veces con relojes distintos y exige
+salida identica. Sin ese test la propiedad dependeria de que alguien recordara
+esperar un dia.
+"""
+
+[rollback]
+description = """
+`git revert` del commit del generador y `git checkout` de los tres artefactos al
+estado del commit 0f62d48. Se recupera el comportamiento anterior, incluido el
+fallo diario.
+
+No requiere migracion de datos ni de artefactos: el cambio afecta a una linea de
+texto en el pie de tres ficheros generados, y ninguno se consume por programa.
+No requiere revertir contrato alguno, porque esta decision no modifico ninguno.
+
+Si se revierte, esta decision pasa a `superseded` con puntero a la que la
+sustituya. No se borra: el historial de por que se cambio de opinion vale tanto
+como la decision vigente.
+"""
+effort = "quince minutos"
+
+[[alternatives]]
+option = "Derivar la fecha del historial de git -fecha del ultimo commit que toco configs/-"
+rejected_because = """
+Es determinista DENTRO de un clon completo e indefinida fuera de el. Un artefacto
+distribuido por `git archive`, descargado como ZIP o construido desde un sdist no
+lleva `.git`, y ahi el generador falla o degrada a un valor inventado: el test
+byte a byte fallaria en un entorno donde no hay forma de arreglarlo.
+
+Repetiria ademas una fragilidad ya identificada en el propio repositorio.
+`app/monitoring/run_context.py` invoca `git` por `subprocess` para obtener
+`code_version` y captura el fallo, de modo que la version de codigo puede quedar
+vacia sin que nada lo delate. Adoptar el mismo patron en el generador seria
+extender un riesgo conocido en lugar de contenerlo.
+
+Y no resuelve el fondo: copiar la fecha del commit dentro del artefacto la
+duplica igual que la fecha del reloj. El dato sigue viviendo en git.
+"""
+
+[[alternatives]]
+option = "Normalizar la fecha en el test antes de comparar"
+rejected_because = """
+Invierte P10. Ajusta la verificacion para que encaje con el codigo en lugar de
+corregir el codigo, y deja el reloj de pared dentro del generador -es decir, deja
+intacta la violacion de P6 y la imposibilidad de P1-.
+
+El coste real no es tecnico sino de precedente: a partir de ahi, cualquier test
+de contrato incomodo tiene una salida barata. `BUILD.md` nombra "un test de
+contrato desactivado" como la primera senal de que la gobernanza dejo de
+gobernar, y relajar la asercion es la version silenciosa de desactivarlo.
+"""
+
+[[alternatives]]
+option = "Sello derivado de la version y la huella sha256 del corpus de configs/"
+rejected_because = """
+Es la mejor arquitectura de las tres y NO se rechaza por diseno: se aplaza. El
+sello dejaria de ser decorativo y responderia la pregunta operativa -"corresponde
+este documento a los contratos que tengo delante"- sin consultar git ni regenerar
+nada, usando `hashlib` y la canonicalizacion que ya existen en
+`app/core/config/fingerprint.py` y `app/core/determinism.py`.
+
+Se aplaza por una razon que este proyecto conoce bien: hoy ningun comando
+compararia esa huella con la de `configs/`, de modo que seria un sexto dato
+declarado sin consumidor. Anadirlo ahora repetiria el patron que la auditoria de
+la plataforma viene corrigiendo -puertos sin adaptador, eventos sin emisor,
+contratos sin lector-.
+
+Exige tambien una decision que no esta tomada: cual es el corpus exacto de la
+huella. Solo `configs/*.toml`, o tambien `CONSTITUTION.md` y `decisions/`. Con
+huella, cualquier byte del corpus -incluida una coma en un `rationale`- obliga a
+regenerar los tres artefactos, y eso endurece el bucle de trabajo de una forma
+que merece su propio analisis.
+
+Se reconsiderara cuando exista el consumidor.
+"""

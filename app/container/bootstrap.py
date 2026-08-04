@@ -3,10 +3,18 @@
 Es el unico lugar del sistema autorizado a conocer implementaciones concretas.
 Todo lo demas recibe puertos.
 
-Lo que compone hoy -fase 3- es la plataforma, no el trading: reloj,
-configuracion resuelta, bus de eventos y catalogos de componentes. Ni broker, ni
-datos, ni estrategias. Si `build_platform` funciona, `qp doctor` puede decir
-`Platform READY` sobre una maquina sin MT5 y sin una sola vela.
+Lo que compone es la plataforma, no el trading: reloj, configuracion resuelta,
+bus de eventos, catalogos de componentes y el catalogo de instrumentos. Ni
+broker, ni datos, ni estrategias. Si `build_platform` funciona, `qp doctor` puede
+decir `Platform READY` sobre una maquina sin MT5 y sin una sola vela.
+
+`load_strategy_spec` se reexporta aqui sin envolverlo. No es composicion, y se
+dice en lugar de disimularlo: es el unico camino por el que `interfaces` puede
+leer una estrategia declarada. La matriz deja a la interfaz ver `core`,
+`application` y `container`, y el lector vive en `config` -que es, por ADR-0005,
+el unico paquete autorizado a abrir un fichero de configuracion-. Este modulo ya
+es esa frontera para la configuracion via `load_configuration`, y la estrategia
+entra por la misma puerta en lugar de abrir una segunda.
 """
 
 from __future__ import annotations
@@ -14,13 +22,16 @@ from __future__ import annotations
 import time
 import tomllib
 from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast, runtime_checkable
 
+from app.config.instruments import TomlInstrumentCatalog
 from app.config.providers.base import ConfigProvider
 from app.config.providers.cli import CommandLineProvider, MappingProvider
 from app.config.providers.env import EnvironmentProvider
 from app.config.providers.toml import TomlFileProvider
+from app.config.strategies import load_strategy_spec
 from app.container.container import Container, Scope
 from app.core.config.fingerprint import ConfigFingerprint, fingerprint
 from app.core.config.provenance import Priority, ResolutionTrace
@@ -31,7 +42,9 @@ from app.core.types import TimestampNs
 from app.events.bus import DeliveryReport, ErrorPolicy, EventBus
 from app.events.event import Event
 from app.events.recorder import Recorder
-from app.shared.ports import ClockPort
+from app.portfolio.limits import RiskLimits
+from app.portfolio.policy import limits_from_mapping
+from app.shared.ports import ClockPort, InstrumentCatalogPort
 
 #: Modos donde un suscriptor roto debe romper la corrida en lugar de degradarla
 #: en silencio y producir metricas incompletas que parecen completas.
@@ -165,9 +178,17 @@ def load_configuration(
     """
     providers: list[ConfigProvider] = [
         TomlFileProvider(root / "configs" / "global.toml", Priority.GLOBAL_FILE),
+        # Contratos de dominio, al mismo nivel que `global.toml` y bajo su propio
+        # espacio de nombres. Hasta ADR-0015 NADIE los leia: los valores de
+        # riesgo vivian a la vez en el fichero y en los defectos de `RiskLimits`,
+        # y el capital inicial en `backtest.toml` y en el comando. Dos fuentes
+        # para el mismo dato es P5 roto, y la que mandaba era la que menos se
+        # revisa -el codigo-, mientras el fichero documentado quedaba de adorno.
+        TomlFileProvider(root / "configs" / "risk.toml", Priority.GLOBAL_FILE, prefix="risk"),
         TomlFileProvider(
-            root / "configs" / "profiles" / f"{mode}.toml", Priority.PROFILE_FILE
+            root / "configs" / "backtest.toml", Priority.GLOBAL_FILE, prefix="backtest"
         ),
+        TomlFileProvider(root / "configs" / "profiles" / f"{mode}.toml", Priority.PROFILE_FILE),
         TomlFileProvider(root / "configs" / "local.toml", Priority.LOCAL_FILE),
         EnvironmentProvider(),
         CommandLineProvider(cli_assignments),
@@ -212,9 +233,7 @@ def build_platform(
     container.register_instance(ClockPort, effective_clock, component_id="clock")
     container.register_instance(ConfigPort, config, component_id="config")
 
-    policy = (
-        ErrorPolicy.RAISE if mode in _STRICT_EVENT_MODES else ErrorPolicy.COLLECT
-    )
+    policy = ErrorPolicy.RAISE if mode in _STRICT_EVENT_MODES else ErrorPolicy.COLLECT
     container.register(
         EventBusPort,
         lambda c: _build_bus(c.resolve(ClockPort), policy),
@@ -229,6 +248,22 @@ def build_platform(
             _registry_factory(kind),
             component_id=f"registry.{kind}",
         )
+
+    # Primer adaptador de dominio que la plataforma inyecta de verdad. Entra aqui
+    # y no en el caso de uso porque su implementacion vive en `config`, que
+    # `application` no puede importar: un caso de uso capaz de abrir un fichero
+    # de configuracion introduciria una entrada no declarada y el resultado
+    # dejaria de depender solo de (datos, configuracion, semilla).
+    #
+    # Perezoso -`register` y no `register_instance`- para que `qp doctor` siga
+    # componiendo la plataforma en una maquina cuyo `configs/symbols/` este vacio
+    # o mal formado: el fallo aparece al pedir un instrumento, que es cuando de
+    # verdad hace falta, y no al arrancar cualquier comando.
+    container.register(
+        InstrumentCatalogPort,
+        lambda _c: TomlInstrumentCatalog(root / "configs" / "symbols"),
+        component_id="instruments",
+    )
 
     container.seal()
     return container
@@ -296,6 +331,97 @@ def _registry_port(kind: str) -> type:
     return _REGISTRY_PORTS[kind]
 
 
+@dataclass(frozen=True, slots=True)
+class PlatformServices:
+    """Lo que la plataforma entrega a un caso de uso, ya resuelto.
+
+    Existe por una restriccion de la matriz que resulta ser la correcta:
+    `interfaces` solo ve `core`, `application` y `container`, de modo que la CLI
+    NO puede importar `app.shared` y por tanto no puede nombrar un puerto para
+    pedirselo al contenedor. Sin este objeto, la unica salida seria declarar
+    `shared` como dependencia de la interfaz, y entonces cualquier comando podria
+    resolver cualquier puerto y saltarse los casos de uso.
+
+    La consecuencia practica es la deseable: el comando recibe piezas ya
+    resueltas y no sabe de que tipo son ni quien las implementa.
+
+    Es tambien la via por la que el reloj de una corrida pasa a salir del
+    CONTENEDOR. `qp download` construye hoy un `SystemClock()` por su cuenta, que
+    funciona pero deja fuera la eleccion de reloj por modo -y con ella la
+    reproducibilidad que el modo determinista promete-.
+    """
+
+    clock: ClockPort
+    instruments: InstrumentCatalogPort
+    config_hash: str
+    mode: str
+    risk_limits: RiskLimits
+    initial_equity: float
+
+
+def platform_services(root: Path, *, mode: str = "deterministic") -> PlatformServices:
+    """Compone la plataforma y devuelve lo que un caso de uso necesita de ella.
+
+    El defecto es `deterministic` y no `research` a proposito: quien pide
+    servicios de plataforma para EJECUTAR algo -un backtest, una busqueda- debe
+    obtener un reloj detenido, porque el instante entra en la identidad de la
+    corrida. Un caso de uso que quiera el reloj de pared tiene que pedirlo.
+    """
+    container = build_platform(root, mode=mode)
+    config = container.resolve(ConfigPort)
+    return PlatformServices(
+        clock=container.resolve(ClockPort),
+        instruments=container.resolve(InstrumentCatalogPort),
+        config_hash=str(config.describe()["fingerprint"]),
+        mode=mode,
+        risk_limits=_risk_limits(config),
+        initial_equity=float(config.get("backtest.account.initial_equity", 0.0)),
+    )
+
+
+def _risk_limits(config: ConfigPort) -> RiskLimits:
+    """Convierte la configuracion resuelta en el objeto de valor tipado.
+
+    La conversion vive en la raiz de composicion y no en el caso de uso porque es
+    justo la frontera que ADR-0005 describe: infraestructura lee, valida y
+    coacciona; hacia dentro cruza un objeto propio, nunca un diccionario. Un
+    runner que preguntara `config.get("risk.sizing.risk_fraction")` conoceria la
+    forma del fichero, y cambiar la disposicion del TOML obligaria a tocarlo.
+
+    Se exige que las claves esten: un `risk.toml` ausente o incompleto NO cae a
+    los defectos del tipo. Caer en silencio a un `risk_fraction` por defecto es
+    la forma en que una politica de riesgo deja de aplicarse sin que nadie borre
+    una linea.
+    """
+    raw = {
+        "sizing": {"risk_fraction": config.get("risk.sizing.risk_fraction")},
+        "limits": {
+            name: config.get(f"risk.limits.{name}")
+            for name in (
+                "min_stop_cost_multiple",
+                "absolute_min_stop_points",
+                "max_lots_per_order",
+                "max_lots_per_symbol",
+                "max_open_positions",
+                "max_margin_utilization",
+            )
+        },
+    }
+    missing = sorted(
+        key
+        for section, values in raw.items()
+        for key, value in values.items()
+        if value is None
+        for key in (f"risk.{section}.{key}",)
+    )
+    if missing:
+        raise ConfigValidationError(
+            "La politica de riesgo esta incompleta en configs/risk.toml",
+            missing=missing,
+        )
+    return limits_from_mapping(raw)
+
+
 def platform_report(root: Path, *, mode: str = "research") -> dict[str, Any]:
     """Estado de la plataforma, calculado. Es lo que consume `qp status`.
 
@@ -320,8 +446,7 @@ def platform_report(root: Path, *, mode: str = "research") -> dict[str, Any]:
     if delivery.is_file():
         states = tomllib.loads(delivery.read_text(encoding="utf-8")).get("state", {})
         report["capabilities"] = {
-            name: str(spec.get("status", "not_started"))
-            for name, spec in sorted(states.items())
+            name: str(spec.get("status", "not_started")) for name, spec in sorted(states.items())
         }
     return report
 
@@ -330,9 +455,12 @@ __all__ = [
     "ConfigPort",
     "EventBusPort",
     "FrozenClock",
+    "PlatformServices",
     "ResolvedConfig",
     "SystemClock",
     "build_platform",
     "load_configuration",
+    "load_strategy_spec",
     "platform_report",
+    "platform_services",
 ]

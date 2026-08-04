@@ -45,9 +45,7 @@ class ParamSpec:
                 name=self.name,
             )
         if self.low is not None and self.high is not None and self.low > self.high:
-            raise InvalidParameter(
-                "Cotas invertidas", name=self.name, low=self.low, high=self.high
-            )
+            raise InvalidParameter("Cotas invertidas", name=self.name, low=self.low, high=self.high)
 
     def validate(self, value: Any) -> None:
         """Comprueba una asignacion concreta.

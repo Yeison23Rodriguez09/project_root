@@ -98,9 +98,7 @@ class Event:
     @property
     def sequence(self) -> int:
         if self.meta is None:
-            raise InvariantViolation(
-                "Evento sin publicar: no tiene secuencia", event=self.name
-            )
+            raise InvariantViolation("Evento sin publicar: no tiene secuencia", event=self.name)
         return self.meta.sequence
 
     def to_dict(self) -> dict[str, Any]:
@@ -129,9 +127,7 @@ def validate_payload(event: Event) -> None:
     for key, value in event.payload.items():
         if isinstance(value, allowed):
             continue
-        if isinstance(value, (list, tuple)) and all(
-            isinstance(item, allowed) for item in value
-        ):
+        if isinstance(value, (list, tuple)) and all(isinstance(item, allowed) for item in value):
             continue
         raise InvariantViolation(
             "Carga de evento no serializable",

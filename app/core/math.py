@@ -53,7 +53,9 @@ def safe_divide(
     return out
 
 
-def zscore(values: FloatArray, *, mean: float | None = None, std: float | None = None) -> FloatArray:
+def zscore(
+    values: FloatArray, *, mean: float | None = None, std: float | None = None
+) -> FloatArray:
     """Estandariza usando media y desviacion **explicitas**.
 
     Los parametros son obligatorios en la practica para cualquier uso en

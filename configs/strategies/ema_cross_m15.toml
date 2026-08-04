@@ -1,0 +1,48 @@
+###############################################################################
+# ESTRATEGIA DE REFERENCIA - cruce de medias en EURUSD M15
+#
+# NO es una estrategia validada y NO debe leerse como una recomendacion. Existe
+# para que el recorrido completo de la plataforma
+#
+#     Parquet -> catalogo -> estrategia -> backtest -> riesgo -> llenado
+#             -> analytics -> artefactos
+#
+# tenga una entrada real y ejecutable, y para que `qp backtest` pueda demostrar
+# el flujo sobre algo declarado en lugar de sobre un objeto construido en un
+# test. Su rendimiento es irrelevante: lo que se ejercita es la CADENA.
+#
+# Ninguna estrategia llega a produccion por estar escrita aqui. El camino es
+# backtest -> walk-forward -> pruebas estadisticas -> promocion -> aprobacion
+# humana, y este fichero solo cubre el primer paso.
+#
+# La forma es exactamente la que consume `StrategySpec.from_dict`, de modo que
+# un spec guardado en un artefacto de corrida se puede releer sin conversion.
+###############################################################################
+
+symbol = "EURUSD"
+timeframe = "M15"
+combine_mode = "all"
+label = "referencia-flujo"
+notes = "Estrategia de referencia del recorrido completo. No validada."
+
+# Cruce de medias exponenciales: largo al alza, corto a la baja. `fast < slow`
+# es obligatorio -el propio bloque se declara plano si no se cumple, para que
+# discovery descarte el caso con motivo visible en lugar de reventar-.
+[[entries]]
+name = "ema_cross"
+params = { fast = 12, slow = 50 }
+
+# Salida por cruce contra la media, ademas del stop. Sin bloque de salida la
+# posicion solo se cerraria por stop o por fin de datos, y una distribucion de
+# `exit_reason` con 90% de `STOP_LOSS` no dice nada sobre la logica de salida.
+[[exits]]
+name = "ema_exit"
+params = { period = 20 }
+
+# Perfil de riesgo de ESTA estrategia. Lo que se declare aqui manda sobre los
+# defaults de `configs/backtest.toml`: el stop se mide en multiplos de ATR
+# porque cien puntos son holgura en una sesion tranquila y ruido en una agitada.
+[risk]
+stop_atr_period = 14
+stop_atr_multiple = 2.0
+target_atr_multiple = 0.0

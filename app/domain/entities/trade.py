@@ -104,6 +104,11 @@ class Trade:
     commission: float = 0.0
     spread_cost: float = 0.0
     slippage_cost: float = 0.0
+    #: Coste de mantener la posicion abierta entre sesiones (swap). A diferencia
+    #: de los otros tres PUEDE SER NEGATIVO: el carry a favor existe y cobrarlo
+    #: es un resultado legitimo. Por eso no entra en la comprobacion de no
+    #: negatividad, y eso se declara en lugar de dejarlo implicito (ADR-0010).
+    financing_cost: float = 0.0
     bars_held: int = 0
     mae: float = 0.0
     mfe: float = 0.0
@@ -125,7 +130,14 @@ class Trade:
 
     @property
     def total_cost(self) -> float:
-        return self.commission + self.spread_cost + self.slippage_cost
+        """Coste total, financiacion incluida.
+
+        La financiacion entro en ADR-0010. Sin ella, `net_pnl` era optimista de
+        forma sistematica para toda estrategia mantenida de un dia para otro, y
+        la omision era invisible: no hay metrica bruta que la delate porque
+        estaba DENTRO del neto.
+        """
+        return self.commission + self.spread_cost + self.slippage_cost + self.financing_cost
 
     @property
     def net_pnl(self) -> float:
@@ -158,6 +170,8 @@ class Trade:
             "commission": self.commission,
             "spread_cost": self.spread_cost,
             "slippage_cost": self.slippage_cost,
+            "financing_cost": self.financing_cost,
+            "total_cost": self.total_cost,
             "net_pnl": self.net_pnl,
             "bars_held": self.bars_held,
             "mae": self.mae,

@@ -301,10 +301,7 @@ class SignalOutput:
         }
 
     def __repr__(self) -> str:
-        return (
-            f"SignalOutput({self.block} n={len(self)} "
-            f"long={self.n_long} short={self.n_short})"
-        )
+        return f"SignalOutput({self.block} n={len(self)} long={self.n_long} short={self.n_short})"
 
 
 __all__ = ["ReasonCode", "SignalOutput"]

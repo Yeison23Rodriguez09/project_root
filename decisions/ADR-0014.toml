@@ -1,0 +1,220 @@
+id = "ADR-0014"
+title = "El riesgo dimensiona sobre capital y stop, y separa lo que recorta de lo que rechaza"
+status = "accepted"
+date = "2026-08-03"
+owner = "Trading"
+
+affected_packages = ["portfolio", "domain", "shared", "research", "application"]
+
+context = """
+La capacidad `Risk` se construyo en el commit `12d337e` con motor, limites y 78
+tests, y quedo desde entonces como la UNICA capacidad con codigo y sin ninguna
+decision registrada. `configs/delivery.toml` lo anotaba en su fila: los criterios
+estaban argumentados en el docstring de `app/portfolio/policy.py` y en los
+`rationale` de `configs/risk.toml`, pero un docstring no es una decision
+registrada (P3).
+
+La diferencia no es formal. Un docstring explica lo que el codigo hace hoy; un
+ADR registra QUE SE DESCARTO y COMO SE COMPRUEBA que la decision sigue
+respetandose. Sin el, dentro de un ano nadie puede distinguir "se eligio
+fraccional fijo tras descartar Kelly" de "se escribio lo primero que funciono", y
+la unica forma de averiguarlo es rehacer el analisis.
+
+El vacio importaba mas que en otras capacidades por lo que esta en juego. El
+dimensionamiento es el unico punto del sistema donde una decision se traduce en
+cuanto dinero se pone, y es ademas el unico calculo del flujo que es una
+DIVISION: el tamano sale de repartir el presupuesto entre la distancia al stop,
+de modo que cuando esa distancia tiende a cero el tamano tiende a infinito.
+"""
+
+decision = """
+A. Dimensionamiento FRACCIONAL FIJO sobre el capital actual.
+
+       presupuesto = capital_actual * risk_fraction
+       lotes       = presupuesto / (distancia_al_stop * valor_por_punto)
+
+   Sobre el capital ACTUAL y no sobre el inicial. La consecuencia es que el
+   tamano baja solo tras las perdidas y sube tras las ganancias, sin que nadie
+   intervenga y sin una regla aparte que lo gestione.
+
+   `risk_fraction = 0.01`: con un 1% hacen falta unas setenta perdidas seguidas
+   para reducir la cuenta a la mitad. Esa es la propiedad buscada -sobrevivir a
+   una racha lo bastante larga como para que una ventaja estadistica pueda
+   manifestarse-, no maximizar el crecimiento.
+
+B. El PRIMER control no es el margen ni el numero de posiciones: es que el stop
+   exista y supere el coste de operar.
+
+   Es la consecuencia directa de que el calculo sea una division. Un stop de un
+   punto pide cien veces mas lotes que uno de cien, y lo pide justo en la
+   operacion peor planteada. Cualquier otro tope se evalua DESPUES, sobre un
+   numero que ya es finito y sensato.
+
+   El umbral se expresa como multiplo del coste de ida y vuelta
+   -`min_stop_cost_multiple = 3.0`- y no en puntos fijos: cien puntos son un stop
+   holgado en EURUSD y ruido en un indice, y el coste es la unica escala que
+   significa lo mismo en todos los instrumentos.
+
+   `absolute_min_stop_points = 10.0` es el suelo para instrumentos que declaran
+   coste cero. Sin el, un modelo de coste sin rellenar anularia el limite
+   anterior en silencio, que es la forma en que un limite deja de existir sin
+   que nadie borre una linea.
+
+C. Se distingue lo que RECORTA de lo que RECHAZA, y la distincion es de primera
+   clase en la salida.
+
+       REDUCEN   los topes -lotes por orden, por simbolo, margen-. La operacion
+                 sigue siendo valida, solo mas pequena. Severidad WARNING.
+       RECHAZAN  las puertas -stop insuficiente, capital no positivo, limite de
+                 posiciones, presupuesto que no alcanza el lote minimo-. No hay
+                 tamano seguro. Severidad ERROR.
+
+   La direccion nunca es ambigua: un tope solo puede hacer la orden mas pequena,
+   jamas mayor. Y cuando el presupuesto no llega al lote minimo negociable la
+   respuesta es NO OPERAR: redondear al alza para alcanzarlo seria arriesgar mas
+   de lo presupuestado, que es exactamente lo que este motor existe para impedir.
+
+D. El redondeo a la rejilla del broker ocurre UNA sola vez, al final.
+
+   Truncar tras cada tope acumularia perdidas de rejilla y haria que el ORDEN de
+   aplicacion de los topes cambiara el resultado. Todos son cotas superiores, asi
+   que tomar el minimo y truncar despues es equivalente y no depende del orden.
+
+E. Cada decision es auditable por construccion. `SizingDecision` conserva
+   `raw_lots` junto a `lots` y la lista de topes que intervinieron, de modo que
+   siempre se puede responder por que se arriesgo lo que se arriesgo. Un recorte
+   que no deje rastro es indistinguible de un calculo equivocado.
+
+F. `portfolio` NO ve la evidencia estadistica. Su `depends` es
+   `["core", "domain", "shared"]`: ni `walkforward` ni `validation`.
+
+   La direccion es la correcta y no una limitacion: el tamano es funcion del
+   instrumento, del capital y de la distancia al stop, nunca de un p-valor.
+   Validation precede a Risk en el ciclo de vida -no se opera lo no validado-,
+   pero no en el flujo de datos. Si el riesgo pudiera leer la evidencia,
+   empezaria a arriesgar mas en las estrategias que mejor puntuaron en el
+   pasado, que es sobreajuste con otro nombre.
+
+G. El motor tampoco decide SI operar. Recibe la direccion de la estrategia y la
+   distancia al stop; no mira precio, no calcula indicadores y no propone
+   entradas. Un modulo de riesgo que mirase el precio para decidir si operar
+   habria invadido la senal, y su criterio quedaria fuera de todo lo validado.
+"""
+
+consequences = """
+Se gana un unico lugar donde se decide cuanto se opera, y por tanto un unico
+lugar que auditar cuando un tamano sorprenda. Ni la estrategia ni el motor de
+ejecucion pueden calcular lotes.
+
+Se gana que el fallo mas caro de esta clase -tamano explosivo por stop
+minusculo- este cortado en su origen y no por un tope posterior. Un tope maximo
+por orden habria acotado el dano, pero habria dejado pasar la operacion peor
+planteada con el tamano mas grande admitido.
+
+Se paga con un conservadurismo deliberado en la exposicion agregada:
+`max_open_positions = 5` y `max_margin_utilization = 0.25` son numeros prudentes
+porque NO existe todavia un modelo de correlacion entre instrumentos. Cuando
+exista, estos limites deberian relajarse con su propia decision registrada; hasta
+entonces la plataforma prefiere dejar de operar a suponer independencia.
+
+Queda una deuda con nombre, que este ADR NO resuelve: los valores viven a la vez
+en `configs/risk.toml` y en los defectos de `RiskLimits`, y hoy nadie lee el
+fichero -la cadena de resolucion de configuracion solo carga `global`, el perfil
+y las capas de entorno-. Es una violacion real de P5 y se corrige en ADR-0015.
+"""
+
+references = [
+    "app/portfolio/policy.py",
+    "app/portfolio/limits.py",
+    "configs/risk.toml",
+    "app/domain/value_objects/instrument.py",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_risk.py"
+description = """
+78 comprobaciones sobre el motor. Las que sostienen esta decision:
+
+  * que un stop mas estrecho que el multiplo del coste se RECHACE, y que el
+    rechazo llegue con severidad ERROR y con los numeros en el contexto;
+  * que el suelo absoluto en puntos actue cuando el instrumento declara coste
+    cero, que es el caso en que el limite anterior desapareceria en silencio;
+  * que ningun tope pueda aumentar el tamano, solo reducirlo;
+  * que un presupuesto por debajo del lote minimo produzca cero lotes y un
+    ERROR, en lugar de redondear al alza;
+  * que `raw_lots` y la lista de topes activos sobrevivan en `SizingDecision`,
+    sin lo cual el recorte no seria auditable;
+  * que el resultado no dependa del ORDEN en que se evaluan los topes.
+
+`tests/test_backtest_flow.py` lo ejercita ademas dentro del recorrido completo:
+`rejected_by_risk` viaja hasta el informe de `qp backtest`, de modo que una
+politica que rechazara todo seria visible en la salida en lugar de parecer una
+estrategia que no encuentra oportunidades.
+
+La independencia declarada en F se verifica estructuralmente y no por revision:
+`tests/test_architecture.py::test_matrix_is_respected` rechaza cualquier import
+de `walkforward` o `validation` desde `portfolio`.
+"""
+
+[rollback]
+description = """
+Este ADR no introduce codigo: registra decisiones ya implementadas y verificadas.
+Revertirlo significaria retirar el registro, no el comportamiento.
+
+Cambiar la POLITICA es otra cosa y no se hace revirtiendo: exige un ADR que
+supersede a este, porque cualquier corrida archivada se dimensiono con estos
+numeros y compararla contra una corrida posterior dejaria de ser valido sin que
+nada lo indicase.
+"""
+effort = "sin efecto sobre el codigo"
+
+[[alternatives]]
+option = "Criterio de Kelly o fraccion optima"
+rejected_because = """
+Kelly maximiza el crecimiento geometrico suponiendo conocidas la probabilidad de
+acierto y la razon ganancia/perdida. En trading sistematico esas dos cantidades
+se ESTIMAN sobre una muestra finita, y Kelly es extremadamente sensible a errores
+en ellas: una sobreestimacion moderada del acierto produce tamanos que llevan a
+la ruina con probabilidad alta.
+
+Ademas ata el dimensionamiento a la evidencia estadistica de la estrategia, que
+es precisamente la dependencia que F prohibe: el riesgo pasaria a arriesgar mas
+en lo que mejor puntuo en el pasado.
+"""
+
+[[alternatives]]
+option = "Tamano fijo en lotes, igual para toda operacion"
+rejected_because = """
+Es mas simple y tiene una propiedad inaceptable: el riesgo por operacion pasa a
+depender de donde caiga el stop. La misma orden de un lote arriesga cuatro veces
+mas con un stop cuatro veces mas ancho, de modo que las operaciones con stop
+amplio -normalmente las de mercado agitado- concentran el dano.
+
+El resultado es una serie de operaciones que no son comparables entre si, y una
+metrica de expectativa por operacion que mezcla riesgos distintos.
+"""
+
+[[alternatives]]
+option = "Un tope maximo de lotes como unico control, sin exigir stop minimo"
+rejected_because = """
+Acota el dano y no evita el problema. La operacion con el stop mas estrecho
+-la peor planteada, la que el ruido barre con certeza- seguiria recibiendo el
+tamano mas grande que el tope permita, y lo recibiria siempre.
+
+El tope existe igualmente, pero como CORTAFUEGOS frente a un error de dato que
+haya superado los demas controles. No deberia activarse nunca en operacion
+normal, y que se active es una senal que merece revision.
+"""
+
+[[alternatives]]
+option = "Fraccion del capital INICIAL en lugar del actual"
+rejected_because = """
+Mantiene constante el riesgo en moneda y elimina la reduccion automatica tras una
+racha de perdidas. Una cuenta que ha perdido la mitad seguiria arriesgando la
+misma cantidad por operacion, que es el doble de su fraccion original.
+
+Sobre el capital actual, el tamano se adapta solo. Ninguna regla adicional tiene
+que detectar la racha ni decidir cuando reducir, y por tanto ninguna puede
+fallar en hacerlo.
+"""

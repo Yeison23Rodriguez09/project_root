@@ -66,7 +66,7 @@ encima, extraer.
 [limits.exempt]
 "app/core/types.py" = { max_public_classes = 14, why = "enums primitivos; separarlos crearia imports circulares de conveniencia" }
 "app/core/exceptions.py" = { max_public_classes = 30, why = "una jerarquia de excepciones es una lista por naturaleza" }
-"app/shared/ports.py" = { max_public_classes = 24, why = "es el fichero de contratos: cada Protocol es una frontera del sistema y tenerlos juntos permite leer de un vistazo toda la superficie de acoplamiento con el exterior. Dividirlos por afinidad esconderia justo lo que interesa ver completo" }
+"app/shared/ports.py" = { max_public_classes = 28, why = "es el fichero de contratos: cada Protocol es una frontera del sistema y tenerlos juntos permite leer de un vistazo toda la superficie de acoplamiento con el exterior. Dividirlos por afinidad esconderia justo lo que interesa ver completo. El numero es el censo de fronteras de hoy, no un margen: anadir un puerto obliga a editar esta linea, que es exactamente la friccion que se busca" }
 
 ###############################################################################
 # ESTILO OBLIGATORIO

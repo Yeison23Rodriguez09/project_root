@@ -1,0 +1,211 @@
+id = "ADR-0015"
+title = "Los contratos de dominio entran en la configuracion resuelta, y la prosa se queda fuera"
+status = "accepted"
+date = "2026-08-03"
+owner = "Platform"
+
+affected_packages = ["config", "container", "portfolio", "interfaces", "core"]
+
+context = """
+`configs/risk.toml` y `configs/backtest.toml` existian desde la Fase 3, con sus
+valores y sus justificaciones escritas, y NADIE los leia. La cadena de
+resolucion solo cargaba `global.toml`, el perfil del modo, `local.toml`, el
+entorno y la linea de comandos.
+
+La consecuencia era una segunda fuente de verdad para cada dato de negocio, que
+es P5 roto:
+
+* la fraccion de riesgo y los seis limites de exposicion vivian en
+  `configs/risk.toml` Y en los defectos de `RiskLimits`;
+* el capital inicial vivia en `configs/backtest.toml` Y en una constante del
+  comando `qp backtest`;
+* los multiplos de ATR viven todavia en `configs/backtest.toml` Y en
+  `research.backtest.engine`.
+
+Y la fuente que MANDABA era la peor de las dos. El fichero documentado, revisado
+y con su `rationale` escrito quedaba de adorno, mientras el valor efectivo salia
+del codigo. Bajar el `risk_fraction` editando `risk.toml` no habria cambiado una
+sola operacion, y nada lo habria advertido: la regla 4.5 de `CLAUDE.md` -ningun
+parametro de negocio hardcodeado- se cumplia en apariencia porque el fichero
+existia.
+
+Este ADR tiene ademas un coste que hay que declarar antes de decidir: cualquier
+clave nueva en la configuracion efectiva cambia el `ConfigFingerprint`, y esa
+huella entra en la identidad de toda corrida. La de esta plataforma paso de
+`sha256:dc038bf3e62f0fd5` a `sha256:3e99dfe2fdca1afd`.
+"""
+
+decision = """
+A. `risk.toml` y `backtest.toml` se cargan como capas de prioridad
+   `GLOBAL_FILE`, la misma que `global.toml`.
+
+   Son contratos del proyecto, versionados y revisados, del mismo rango que la
+   configuracion global. No son un perfil -no dependen del modo- ni una capa
+   local -se versionan-.
+
+B. Cada uno cuelga de su propio ESPACIO DE NOMBRES: `risk.*` y `backtest.*`.
+
+   No es cosmetica. Los tres ficheros declaran `[meta] version`, de modo que sin
+   prefijo tres capas de la MISMA prioridad escribirian la clave `meta.version`
+   y la resolucion tendria que elegir entre valores igual de legitimos. Con
+   prefijo, la clave dice ademas de que fichero salio, que es justo lo que
+   `qp config show` necesita para explicar una procedencia.
+
+   El prefijo lo aplica `TomlFileProvider`, que ya era el unico que sabe leer un
+   fichero TOML. Un proveedor nuevo habria duplicado su manejo de errores.
+
+C. Las subtablas `rationale` NO entran en la configuracion efectiva.
+
+   Es la parte que no estaba prevista y que la primera ejecucion hizo evidente:
+   con la prosa dentro, la configuracion pasaba de 15 a 26 claves y el
+   `ConfigFingerprint` incorporaba parrafos de texto. Reescribir un comentario
+   para aclararlo habria cambiado la huella y con ella la identidad de toda
+   corrida posterior: dos experimentos identicos dejarian de parecerlo por una
+   correccion de estilo.
+
+   La prosa que EXPLICA un valor no es un valor. Se filtra por NOMBRE de
+   subtabla y no por fichero, porque la convencion es del proyecto entero y
+   porque un contrato nuevo que la siga debe quedar cubierto sin que nadie se
+   acuerde de anadirlo a una lista.
+
+D. La conversion a objeto tipado ocurre en la RAIZ DE COMPOSICION.
+
+   `platform_services` construye el `RiskLimits` a partir de la configuracion
+   resuelta y lo entrega ya tipado. Es exactamente la frontera que ADR-0005
+   describe: infraestructura lee, valida y coacciona; hacia dentro cruza un
+   objeto propio, nunca un diccionario. Un runner que preguntara
+   `config.get("risk.sizing.risk_fraction")` conoceria la forma del fichero, y
+   cambiar la disposicion del TOML obligaria a tocarlo.
+
+   `PlatformServices` gana `risk_limits` e `initial_equity`, y
+   `build_backtest_service` exige los limites SIN DEFECTO: un valor de reserva
+   volveria a crear la segunda fuente que este ADR retira.
+
+E. Una politica de riesgo incompleta se RECHAZA; no cae a los defectos del tipo.
+
+   Caer en silencio a un `risk_fraction` por defecto es la forma en que una
+   politica deja de aplicarse sin que nadie borre una linea: la plataforma
+   seguiria dimensionando, con numeros que nadie declaro y que no aparecen en
+   ningun fichero revisable.
+"""
+
+consequences = """
+Se gana una sola fuente de verdad para el riesgo y para el capital de partida.
+Editar `risk.toml` cambia el comportamiento, que es lo que un fichero de
+configuracion debe hacer y lo que hasta ahora no hacia.
+
+Se gana procedencia: `qp config show` responde de que fichero salio cada valor,
+y `risk.limits.max_open_positions` ya no puede confundirse con un numero elegido
+dentro de una funcion.
+
+Se paga con el cambio de `ConfigFingerprint`, y es un coste real: las corridas
+archivadas antes de este commit llevan la huella anterior, de modo que comparar
+una de ellas con una posterior exige saber que la configuracion efectiva cambio
+de forma. No se migra nada -los artefactos son derivados reproducibles- pero la
+discontinuidad queda registrada aqui para que dentro de un ano el salto de
+huella tenga explicacion.
+
+Queda pendiente y anotado: los multiplos de ATR siguen duplicados entre
+`configs/backtest.toml` y `research.backtest.engine`. La diferencia con el resto
+es que el motor los usa como defecto de una estrategia que no los declara, y lo
+que manda es el bloque `risk` del `StrategySpec`. Unificarlos exige decidir si la
+estrategia hereda del fichero o si el fichero solo describe el defecto del
+generador, y esa decision pertenece a discovery.
+"""
+
+references = [
+    "app/config/providers/toml.py",
+    "app/container/bootstrap.py",
+    "configs/risk.toml",
+    "configs/backtest.toml",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_config_resolution.py"
+description = """
+Cinco comprobaciones, cada una sobre una de las decisiones:
+
+  * que los valores de riesgo y de backtest llegan a la configuracion efectiva
+    con su procedencia -A y D-;
+  * que los tres `[meta] version` conviven sin que ninguno pise a otro, y que
+    ninguna clave queda en disputa entre capas de la MISMA prioridad, que es la
+    unica disputa sin criterio para resolverse -B-;
+  * que ninguna clave con `rationale` entra en la configuracion efectiva -C-;
+  * que editar la PROSA de `risk.toml` no cambia la huella, comprobado sobre
+    ficheros reales y no por razonamiento -C-;
+  * que un `risk.toml` sin sus claves hace fallar la composicion en lugar de
+    caer a los defectos -E-.
+
+`tests/test_determinism.py` sigue verificando que la huella resultante sea
+estable entre procesos, que es lo que impide que este cambio haya introducido
+una dependencia del orden de hash al aplanar dos ficheros mas.
+"""
+
+[rollback]
+description = """
+`git revert` del commit. Se retiran las dos capas, el prefijo, el filtrado de
+`rationale` y los dos campos de `PlatformServices`; `build_backtest_service`
+vuelve a construir `FixedFractionalRiskPolicy()` con los defectos del tipo.
+
+El `ConfigFingerprint` volveria a su valor anterior, de modo que las corridas
+archivadas ANTES de este ADR volverian a ser comparables y las posteriores
+dejarian de serlo. Es la razon de que la discontinuidad se registre: sin este
+apunte, el salto de huella en las dos direcciones seria inexplicable.
+
+No hay migracion de datos. Los artefactos son derivados reproducibles a partir
+del dataset, la estrategia y la semilla que ellos mismos declaran.
+"""
+effort = "veinte minutos"
+
+[[alternatives]]
+option = "Que el caso de uso lea la configuracion y construya sus propios limites"
+rejected_because = """
+`application` no declara `config` en su `depends`, y la regla que hay detras no
+es formal: un caso de uso capaz de leer un fichero introduce una entrada no
+declarada, y el resultado deja de depender solo de (datos, configuracion,
+semilla).
+
+Ademas ataria el runner a la FORMA del TOML. Cambiar la disposicion del fichero
+-mover `risk_fraction` de `[sizing]` a `[limits]`- obligaria a tocar codigo de
+orquestacion, que es justo lo que la frontera de ADR-0005 existe para evitar.
+"""
+
+[[alternatives]]
+option = "Cargar los dos ficheros sin prefijo"
+rejected_because = """
+Los tres contratos declaran `[meta] version`. Sin espacio de nombres, tres capas
+de identica prioridad escribirian la misma clave y el ganador dependeria del
+orden en que se registran los proveedores -un detalle de implementacion, no una
+decision-.
+
+El sintoma seria ademas silencioso: `meta.version` valdria 1 en los tres casos
+hoy, y la ambiguedad solo se manifestaria el dia que uno de los ficheros
+cambiara de version.
+"""
+
+[[alternatives]]
+option = "Dejar la prosa dentro de la configuracion efectiva"
+rejected_because = """
+Es lo que ocurrio en el primer intento y por eso se descarta con evidencia y no
+por hipotesis: la configuracion paso de 15 a 26 claves, y once de ellas eran
+parrafos de texto explicativo dentro del `ConfigFingerprint`.
+
+La huella dejaria de significar "esta configuracion" para significar "esta
+configuracion y como se explico", de modo que mejorar la redaccion de un
+`rationale` -algo que el proyecto fomenta- invalidaria la comparacion con
+cualquier corrida anterior.
+"""
+
+[[alternatives]]
+option = "Mantener defectos en `RiskLimits` como red de seguridad"
+rejected_because = """
+Una red de seguridad que se activa en silencio no es una red: es un cambio de
+politica sin autor. Si `risk.toml` desapareciera o quedara incompleto, la
+plataforma seguiria dimensionando posiciones con numeros que nadie declaro y que
+no figuran en ningun fichero revisable.
+
+Los defectos del tipo se conservan -son utiles para construir un `RiskLimits` en
+un test sin montar un fichero- pero la raiz de composicion no los usa: exige las
+claves y falla si faltan.
+"""

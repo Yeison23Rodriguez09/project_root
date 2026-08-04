@@ -1,12 +1,12 @@
 # Reporte de consolidacion arquitectonica
 
-Generado: 2026-07-28T11:44:24Z
+Generado por `scripts/consolidate_architecture.py` desde `configs/architecture.toml` v3
 
-- Modulos analizados: **100**
-- Aristas entre paquetes: **11**
+- Modulos analizados: **125**
+- Aristas entre paquetes: **31**
 - Violaciones de la matriz: **0**
 - Ciclos de importacion: **0**
-- Modulos huerfanos: **65**
+- Modulos huerfanos: **79**
 - Simbolos duplicados: **1**
 
 ## Paquetes
@@ -14,25 +14,25 @@ Generado: 2026-07-28T11:44:24Z
 | Paquete | Nivel | Modulos | Dependencias |
 |---|---|---|---|
 | app.analytics | 3 | 1 | 0 |
-| app.application | 5 | 5 | 0 |
-| app.broker | 4 | 1 | 0 |
-| app.config | 4 | 7 | 1 |
-| app.container | 5 | 5 | 4 |
+| app.application | 5 | 9 | 5 |
+| app.broker | 4 | 2 | 2 |
+| app.config | 4 | 8 | 2 |
+| app.container | 5 | 6 | 4 |
 | app.core | 0 | 19 | 0 |
-| app.discovery | 3 | 14 | 0 |
-| app.domain | 1 | 13 | 1 |
+| app.discovery | 3 | 16 | 3 |
+| app.domain | 1 | 15 | 1 |
 | app.events | 0 | 4 | 1 |
 | app.execution | 3 | 1 | 0 |
-| app.interfaces | 7 | 5 | 2 |
+| app.interfaces | 7 | 9 | 3 |
 | app.live | 6 | 1 | 0 |
-| app.monitoring | 4 | 1 | 0 |
-| app.optimization | 3 | 1 | 0 |
+| app.monitoring | 4 | 4 | 2 |
+| app.optimization | 3 | 2 | 3 |
 | app.paper | 6 | 1 | 0 |
 | app.portfolio | 3 | 1 | 0 |
 | app.promotion | 3 | 6 | 0 |
-| app.research | 3 | 6 | 0 |
+| app.research | 3 | 11 | 2 |
 | app.shared | 2 | 2 | 2 |
-| app.storage | 4 | 3 | 0 |
+| app.storage | 4 | 4 | 1 |
 | app.validation | 3 | 1 | 0 |
 | app.walkforward | 3 | 1 | 0 |
 
@@ -50,10 +50,12 @@ _ninguno_
 - `app.application`
 - `app.application.backtest`
 - `app.application.discovery`
+- `app.application.download`
 - `app.application.live`
 - `app.application.promotion`
 - `app.broker`
 - `app.config`
+- `app.config.instruments`
 - `app.config.providers`
 - `app.config.providers.yaml`
 - `app.container`
@@ -64,6 +66,7 @@ _ninguno_
 - `app.discovery`
 - `app.discovery.catalog`
 - `app.discovery.constraints`
+- `app.discovery.engine`
 - `app.discovery.evaluation`
 - `app.discovery.evolution`
 - `app.discovery.evolution.crossover`
@@ -71,6 +74,7 @@ _ninguno_
 - `app.discovery.evolution.mutation`
 - `app.discovery.evolution.selection`
 - `app.discovery.generator`
+- `app.discovery.generator.search_space`
 - `app.discovery.graph`
 - `app.discovery.pruning`
 - `app.discovery.scoring`
@@ -81,16 +85,25 @@ _ninguno_
 - `app.domain.value_objects`
 - `app.domain.value_objects.money`
 - `app.domain.value_objects.time_range`
+- `app.domain.value_objects.validation_metrics`
 - `app.events`
 - `app.execution`
 - `app.interfaces`
 - `app.interfaces.api`
 - `app.interfaces.cli`
-- `app.interfaces.cli.doctor`
-- `app.interfaces.cli.status`
+- `app.interfaces.cli.config_cmd`
+- `app.interfaces.cli.doctor_cmd`
+- `app.interfaces.cli.download_cmd`
+- `app.interfaces.cli.plugins_cmd`
+- `app.interfaces.cli.preflight_cmd`
+- `app.interfaces.cli.status_cmd`
 - `app.live`
 - `app.monitoring`
+- `app.monitoring.run_context`
+- `app.monitoring.runtime_metrics`
+- `app.monitoring.sink`
 - `app.optimization`
+- `app.optimization.engine`
 - `app.paper`
 - `app.portfolio`
 - `app.promotion`
@@ -108,12 +121,13 @@ _ninguno_
 - `app.shared`
 - `app.storage`
 - `app.storage.artifacts`
+- `app.storage.artifacts.store`
 - `app.storage.zoo`
 - `app.validation`
 - `app.walkforward`
 ## Simbolos duplicados
 
-- `main: app.interfaces.cli, app.interfaces.cli.doctor, app.interfaces.cli.status`
+- `main: app.interfaces.cli, app.interfaces.cli.config_cmd, app.interfaces.cli.doctor_cmd, app.interfaces.cli.download_cmd, app.interfaces.cli.plugins_cmd, app.interfaces.cli.preflight_cmd, app.interfaces.cli.status_cmd`
 ---
 
 Un modulo huerfano no es necesariamente un error: los puntos de entrada y los modulos que solo se importan dinamicamente aparecen aqui. Lo que si es una senal es que crezcan entre dos consolidaciones.

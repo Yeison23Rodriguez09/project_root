@@ -1,0 +1,324 @@
+id = "ADR-0010"
+title = "El contrato de resultado se cierra antes de que exista el primer motor"
+status = "accepted"
+date = "2026-07-30"
+owner = "Platform"
+
+# Los consumidores del contrato, no los ficheros que cambian. `domain` es donde
+# vive; los demas son los motores que lo leeran y que hoy estan vacios. Esa es
+# exactamente la razon de hacerlo ahora.
+affected_packages = [
+    "domain",
+    "config",
+    "analytics",
+    "walkforward",
+    "validation",
+    "discovery",
+    "promotion",
+]
+
+context = """
+El objetivo declarado es la cadena completa:
+
+    MT5 -> descargar -> validar -> guardar -> DatasetRepository -> Discovery
+        -> Optimize -> WalkForward -> Model Zoo -> Paper -> Live
+
+Seis de esos once eslabones consumen `PerformanceMetrics`, y cuatro consumen
+`Trade` y `CostModel`. Hoy los cuatro paquetes que los consumiran -`analytics`,
+`walkforward`, `discovery`, `promotion`- estan VACIOS: cero modulos con codigo.
+Es la unica ventana en la que estos contratos se pueden corregir sin migrar
+datos persistidos ni tocar codigo que ya los usa, y la cierra el primer motor.
+
+La auditoria encontro siete defectos en ese contrato. No son estilo: cada uno
+produce un numero incorrecto o incomparable, y en una plataforma cuyo proposito
+es decidir que estrategia opera con dinero real, un numero incomparable es peor
+que ninguno porque parece informacion.
+
+1. COSTE DE FINANCIACION AUSENTE. `Trade` declara tres costes -`commission`,
+   `spread_cost`, `slippage_cost`- y `total_cost` es su suma. Grep de
+   `swap|financing|overnight|carry|rollover` en todo `app/` y `configs/`: CERO.
+   `configs/symbols/XAUUSD.toml` configura oro con `margin_per_lot = 10000.0`,
+   es decir apalancado y mantenible de un dia para otro.
+
+   Y `metrics.py` establece como "regla de honestidad" que todas las metricas se
+   calculan sobre PnL neto "para que sea imposible presentar por descuido un
+   resultado sin costes". Con la financiacion fuera del neto, esa regla se
+   derrota a si misma: no hay metrica bruta que delate la omision porque la
+   omision esta DENTRO del neto. Toda estrategia que mantenga posicion durante
+   la noche mostraria un resultado optimista, de forma sistematica y silenciosa.
+
+2. CAGR NO EXISTE. Cero referencias en `app/`. Es una de las metricas por las
+   que el Model Zoo debe rankear.
+
+3. WFE NO EXISTE. Cero referencias. `CLAUDE.md` la declara puerta de promocion
+   -"solo si supera el WFE minimo y el P-Value umbral"- y no hay tipo que la
+   represente.
+
+4. `calmar` ES AMBIGUO. Su docstring dice "retorno anualizado dividido por el
+   drawdown maximo" y el objeto tiene DOS drawdowns: `max_drawdown` en moneda de
+   cuenta y `max_drawdown_pct` en fraccion. Un Calmar en unidades monetarias no
+   es comparable entre instrumentos ni entre tamanos de cuenta, y cuatro motores
+   lo implementarian cada uno a su manera.
+
+5. `sharpe` NO LLEVA SU PERIODO. Se declara "anualizado sobre retornos por
+   barra", pero anualizar exige el factor `sqrt(barras por ano)`, que depende del
+   `Timeframe`. `PerformanceMetrics` no lleva el timeframe, asi que un Sharpe de
+   M15 y otro de H1 no son comparables y nada en el objeto lo delata. Discovery
+   los ordenaria en la misma lista. `Timeframe.bars_per_year` y
+   `core.math.annualization_factor` YA EXISTEN: lo que falta es que el resultado
+   diga con cual se calculo.
+
+6. TRES INVARIANTES PROMETIDAS Y NO APLICADAS. `__post_init__` valida cuatro
+   cosas. El docstring promete ademas que `gross_loss` es negativo o cero, que
+   `max_drawdown_pct` es una fraccion y que `profit_factor` no es negativo.
+   Ninguna se comprueba. `architecture.toml` sostiene que un objeto de dominio
+   inmutable convierte "si existe, es correcto" en propiedad del tipo; aqui la
+   propiedad se cumple a medias.
+
+7. `cost_ratio` DIVIDE POR CERO SIN REPRESENTACION. Se define como
+   `costes / |beneficio_bruto|` y se tipa `float`. `profit_factor`, que tiene
+   exactamente el mismo problema, se tipa `float | None` "para no propagar
+   infinitos a los artefactos JSON ni a los rankings". El mismo defecto recibe
+   dos tratamientos opuestos dentro del mismo objeto.
+
+Se anade un octavo, de convencion: `CostModel.spread_points` dice que el spread
+"se aplica al entrar y al salir" -dos cruces-, y `Trade.spread_cost` es un
+escalar unico que no declara si contiene uno o dos. Es un factor 2 sobre el
+coste dominante del oro, cuyo spread configurado es de 25 puntos.
+"""
+
+decision = """
+Se cierra el contrato de resultado antes de construir el primer motor, con seis
+cambios en `app/domain` y una decision de UBICACION que es la mas importante de
+todas.
+
+A. LA FINANCIACION ENTRA EN EL COSTE.
+   `CostModel` gana el parametro de financiacion y `Trade` gana `financing_cost`,
+   que se suma en `total_cost` y por tanto se descuenta en `net_pnl`. A
+   diferencia de los otros tres costes, la financiacion PUEDE SER NEGATIVA -el
+   carry a favor existe-, asi que no hereda la invariante "no puede ser
+   negativo" y eso se declara explicitamente en lugar de dejarlo implicito.
+
+B. `cagr` ES CAMPO DE `PerformanceMetrics`.
+   Es una propiedad de una curva de equity sobre un periodo, que es exactamente
+   lo que el objeto resume.
+
+C. WFE **NO** ES CAMPO DE `PerformanceMetrics`.
+   Es la decision estructural de este ADR. La eficiencia walk-forward es un
+   COCIENTE ENTRE DOS EVALUACIONES -fuera de muestra frente a dentro de muestra-,
+   no una propiedad de una. Ponerla aqui obligaria a que todo `PerformanceMetrics`
+   llevase un campo que solo tiene sentido en uno de cada dos contextos, y a que
+   un backtest simple devolviera `wfe=None` sin significado.
+
+   WFE pertenece a un tipo agregado del motor `walkforward`, que compone las
+   metricas IS y OOS de cada fold. Se declara aqui, y no se implementa aqui,
+   porque el paquete `walkforward` esta vacio: lo que este ADR fija es DONDE va,
+   para que el motor no invente su propio sitio cuando se construya.
+
+D. `calmar` SE DEFINE SOBRE LA FRACCION.
+   `calmar = cagr / max_drawdown_pct`. Queda escrito en el contrato, no en la
+   cabeza de quien lo implemente.
+
+E. EL RESULTADO DECLARA SU PERIODO.
+   `PerformanceMetrics` gana el `Timeframe` y el numero de barras del periodo
+   evaluado. Con ellos, `cagr`, `sharpe`, `sortino` y `turnover` son
+   reconstruibles y auditables, y dos resultados de timeframes distintos dejan de
+   poder compararse por accidente: la diferencia es visible en el objeto.
+
+F. LAS INVARIANTES PROMETIDAS SE APLICAN, Y `cost_ratio` SE ALINEA CON
+   `profit_factor` pasando a `float | None`.
+
+G. `spread_cost` DECLARA SU CONVENCION: contiene el coste de AMBOS cruces,
+   entrada y salida, que es lo que `CostModel` ya dice aplicar.
+
+H. SE FORMALIZA LA FAMILIA DE CONTRATOS DE EVIDENCIA.
+   No basta con declarar donde NO va WFE: hay que declarar donde SI va, o el
+   contrato aparecera de golpe en R6 con codigo ya encima. Se crean por tanto,
+   vacios de implementacion pero completos de forma:
+
+       StatisticalTestResult   estadistico, p-valor, veredicto
+       WalkForwardMetrics      folds, is_return, oos_return, wfe, stability
+       ValidationMetrics       walk_forward + tests + overfitting_score
+
+   La separacion es la que da sentido a todo el ADR:
+
+       PerformanceMetrics   COMO gano       retorno, Sharpe, drawdown, CAGR
+       ValidationMetrics    SI ES CREIBLE   walk-forward, pruebas estadisticas
+
+   Un unico objeto con las dos cosas invita a rankear por rentabilidad y mirar la
+   confianza despues, que es el orden inverso al que `SYSTEM_MODEL.md` exige:
+   "Promocion: no evalua rentabilidad, evalua confianza".
+
+   Tres decisiones de detalle, cada una forzada por algo que ya existia en el
+   proyecto y no por preferencia:
+
+   H.1 El fichero se llama `validation_metrics.py` y no `validation.py` porque
+       `app/core/validation.py` YA EXISTE con otro significado -`ValidationReport`
+       acumula violaciones de regla, no evidencia estadistica- y `validation.py`
+       no figura en `rules.duplicate_modules.allowed_repeats`. Un segundo modulo
+       con ese nombre rompe `test_no_duplicate_modules`. El choque de vocabulario
+       se anota: en este sistema "validacion" significa dos cosas, y conviene no
+       agravarlo.
+
+   H.2 `WalkForwardMetrics` NO lleva decision de promocion, aunque agrupar la
+       medida con el veredicto sea tentador. `PromotionPolicyPort.evaluate` ya
+       emite ese veredicto, y guardarlo aqui haria que el motor que MIDE cargue
+       la decision de quien DECIDE. Es la misma frontera que la matriz protege
+       manteniendo `promotion` fuera del `depends` de `discovery`, y la misma que
+       sostiene la decision C.
+
+   H.3 Las pruebas estadisticas viajan en un MAPA indexado por nombre, no como
+       campos fijos `pbo`, `reality_check`, `spa`. `StatisticalTestPort` se
+       diseno explicitamente para que "la capa de promocion pueda componer
+       pruebas heterogeneas SIN CONOCERLAS"; fijarlas como atributos obligaria a
+       tocar este tipo y la politica que lo lee cada vez que se anada una prueba.
+       `StatisticalTestResult` da ademas la forma que el puerto prometia en prosa
+       y tipaba como `Mapping[str, Any]`.
+
+Lo que este ADR NO hace: no implementa ningun calculo. `PerformanceMetrics` y
+`ValidationMetrics` siguen siendo contratos de datos y el calculo vivira en
+`analytics`, `walkforward` y `validation`, como sus docstrings declaran. Aqui
+solo se fija QUE se mide, con que unidades y donde vive cada cosa.
+"""
+
+consequences = """
+Se gana la unica propiedad que hace comparable un resultado con otro: que dos
+`PerformanceMetrics` producidos por motores distintos, en instrumentos distintos
+y en timeframes distintos, signifiquen lo mismo. Sin ella, el ranking de
+Discovery y la puerta de promocion operan sobre numeros que no son comparables
+entre si, y ningun test lo detectaria porque cada uno seria internamente
+coherente.
+
+Se gana tambien que la "regla de honestidad" de `metrics.py` sea cierta. Hoy es
+una afirmacion que el propio tipo contradice para cualquier estrategia que
+mantenga posicion durante la noche.
+
+Se paga un coste de contrato: `Trade` y `PerformanceMetrics` ganan campos, y
+`PerformanceMetrics` pasa a exigir informacion -timeframe y numero de barras-
+que antes no pedia. Hoy ese coste es NULO en codigo, porque ningun modulo de
+produccion construye ninguno de los dos objetos; solo hay que actualizar los
+tests que los fabrican. Ese es todo el argumento para hacerlo ahora y no
+despues: dentro de tres rebanadas, el mismo cambio implica migrar artefactos
+persistidos y reejecutar toda evidencia archivada.
+
+Riesgo asumido: se fijan convenciones -Calmar sobre fraccion, spread en dos
+cruces, financiacion con signo- que alguien podria querer distintas. Por eso van
+en un ADR y no en un comentario: cambiarlas despues exige sustituir esta
+decision, que es precisamente el control que se busca.
+
+Lo que NO se decide aqui y queda anotado: la forma exacta del parametro de
+financiacion -tasa por lote y noche frente a puntos por dia- depende de como lo
+publique el broker, y se fija en la rebanada que construya el adaptador MT5, con
+datos reales del terminal en lugar de por analogia.
+"""
+
+references = [
+    "app/domain/value_objects/metrics.py",
+    "app/domain/value_objects/validation_metrics.py",
+    "app/domain/entities/trade.py",
+    "app/domain/value_objects/instrument.py",
+    "app/config/instruments.py",
+    "app/shared/ports.py",
+    "app/core/types.py",
+    "app/core/math.py",
+    "configs/symbols/XAUUSD.toml",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_domain_result_contract.py"
+description = """
+Fichero nuevo. Hoy `app/domain/` no tiene NINGUN test propio -no existen
+`test_domain`, `test_bars`, `test_trade` ni `test_metrics`-, asi que el contrato
+que gobierna toda la cadena esta sin cubrir. Este ADR no puede aceptarse dejando
+esa situacion igual.
+
+Comprueba, sobre las invariantes y no sobre ejemplos:
+
+  * `net_pnl` descuenta la financiacion, y lo hace tambien cuando el carry es
+    favorable -signo negativo-, que es el caso que un test con datos optimistas
+    no cubriria;
+  * las cuatro invariantes prometidas rechazan su violacion: `gross_loss`
+    positivo, `max_drawdown_pct` fuera de [0,1], `profit_factor` negativo y la
+    incoherencia entre `net_profit` y sus componentes;
+  * `cost_ratio` ADMITE `None`, igual que `profit_factor`. Que lo DEVUELVA con
+    beneficio bruto cero es responsabilidad de `analytics`, que no existe; lo
+    que este ADR fija es que el contrato lo permita, para que el calculo no se
+    vea forzado a propagar un infinito;
+  * un `PerformanceMetrics` no puede construirse sin declarar su timeframe y su
+    numero de barras, que es lo que hace auditable la anualizacion;
+  * `PerformanceMetrics.empty()` exige timeframe y sigue siendo degenerado.
+
+Y dos aserciones sobre lo que los contratos NO contienen, que son las que
+impiden que las decisiones C y H.2 se erosionen "porque hacia falta en un sitio":
+que `wfe` no es campo de `PerformanceMetrics`, y que `WalkForwardMetrics` no
+lleva veredicto de promocion.
+
+Sobre la familia de evidencia se comprueba ademas que el mapa de pruebas es
+inmutable tras construirse, que su clave coincide con el nombre de la prueba,
+que admite pruebas que el tipo no conoce, y que un candidato SIN evaluar es
+distinguible de uno evaluado y malo: la primera situacion pide mas datos y la
+segunda se descarta, y confundirlas rechaza candidatos que nadie llego a medir.
+"""
+
+[rollback]
+description = """
+`git revert` del commit. Los campos nuevos se retiran y los objetos vuelven a su
+forma anterior.
+
+No requiere migracion: en el momento de aplicarse, NINGUN modulo de produccion
+construye `Trade` ni `PerformanceMetrics` -`app/analytics`, `app/research`,
+`app/walkforward`, `app/discovery` y `app/promotion` estan vacios- y no existe
+ningun artefacto persistido con estos tipos. Solo se veria afectado el fichero de
+tests que se anade junto con el cambio.
+
+Esta propiedad es temporal y es la razon de la urgencia: desaparece en cuanto la
+rebanada R5 produzca el primer backtest con resultados archivados.
+"""
+effort = "medio dia"
+
+[[alternatives]]
+option = "Anadir `wfe` como campo de `PerformanceMetrics`"
+rejected_because = """
+Obligaria a que TODO resultado llevase un campo que solo significa algo cuando
+existen dos evaluaciones que comparar. Un backtest simple tendria que devolver
+`wfe = None`, y un `None` que aparece por construccion -no por falta de datos-
+ensena a los consumidores a ignorar el campo, que es como un dato deja de
+verificarse.
+
+Ademas invertiria la dependencia: `PerformanceMetrics` vive en `domain` (capa 1)
+y la eficiencia walk-forward es un concepto del motor `walkforward` (capa 3).
+Meter el cociente en el objeto de capa 1 haria que el dominio conociera una
+metodologia de validacion, y `SYSTEM_MODEL.md` es explicito en que la ejecucion
+y la validacion no deben conocerse: "la ejecucion es un mecanismo, la validacion
+es una metodologia".
+"""
+
+[[alternatives]]
+option = "Dejar el contrato como esta y corregirlo cuando un motor lo necesite"
+rejected_because = """
+Es la opcion que parece barata y es la mas cara. Cuando `analytics`, `walkforward`,
+`discovery` y `promotion` construyan `PerformanceMetrics`, el mismo cambio exige
+tocar cuatro paquetes, migrar los artefactos ya escritos y reejecutar la
+evidencia archivada para que siga siendo comparable. Hoy el coste es un fichero
+de tests que todavia no existe.
+
+Y hay un coste peor que el de ingenieria: durante ese intervalo, la plataforma
+produciria numeros optimistas para cualquier estrategia mantenida durante la
+noche, y decisiones de promocion tomadas sobre ellos. Corregir el contrato
+despues no invalida solo el codigo: invalida las conclusiones.
+"""
+
+[[alternatives]]
+option = "Externalizar las convenciones -Calmar, spread, financiacion- a `configs/`"
+rejected_because = """
+Confunde un parametro con una definicion. Que el spread se pague dos veces o que
+Calmar se calcule sobre la fraccion no son valores a calibrar por instrumento:
+son lo que esas palabras SIGNIFICAN en este sistema. Un contrato que permite dos
+definiciones de Calmar produce dos numeros llamados igual, y la comparacion entre
+ellos deja de significar nada.
+
+Lo que si es parametro y si vive en `configs/symbols/*.toml` son las magnitudes:
+cuantos puntos de spread, que tasa de financiacion. Esa frontera ya existe en el
+proyecto y este ADR la respeta.
+"""

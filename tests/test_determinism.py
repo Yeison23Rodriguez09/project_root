@@ -136,9 +136,7 @@ def test_preflight_output_is_reproducible() -> None:
     orden de un `set`, aqui se veria.
     """
     first, second = _preflight_payload(), _preflight_payload()
-    assert first == second, (
-        "Dos ejecuciones identicas de preflight producen informes distintos."
-    )
+    assert first == second, "Dos ejecuciones identicas de preflight producen informes distintos."
 
 
 def _preflight_payload() -> str:

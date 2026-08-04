@@ -20,6 +20,7 @@ Contratos verificados:
 
 from __future__ import annotations
 
+import ast
 import re
 import sys
 import tomllib
@@ -151,8 +152,7 @@ def test_behaviour_flags_are_justified() -> None:
         flag for flag, value in behaviour.items() if value is True and flag not in rationale
     )
     assert not missing, (
-        "Afirmaciones de [behavior] sin entrada en [behavior.rationale]: "
-        + ", ".join(missing)
+        "Afirmaciones de [behavior] sin entrada en [behavior.rationale]: " + ", ".join(missing)
     )
 
 
@@ -251,12 +251,33 @@ def test_live_only_accepts_promoted_strategies() -> None:
     """
     states: dict[str, Any] = dict(runtime().get("allowed_lifecycle_states", {}))
     states.pop("rationale", None)
-    for mode in ("live", "paper"):
+    for mode in ("live", "paper", "demo"):
         allowed = set(states.get(mode, ()))
+        assert allowed, f"El modo {mode!r} no declara que estados admite"
         forbidden = allowed - {"promoted", "live"}
-        assert not forbidden, (
-            f"El modo {mode!r} admite estados no promovidos: {sorted(forbidden)}"
-        )
+        assert not forbidden, f"El modo {mode!r} admite estados no promovidos: {sorted(forbidden)}"
+
+
+@pytest.mark.contract
+def test_every_mode_that_reaches_a_broker_declares_its_lifecycle_states() -> None:
+    """Un modo que puede enviar ordenes declara que estados admite.
+
+    Sin esta comprobacion, anadir un modo con broker y olvidar su fila en
+    `allowed_lifecycle_states` lo dejaria sin restriccion de ciclo de vida: el
+    test anterior recorre una lista fija de nombres y no habria notado la
+    ausencia. Es el fallo por omision, que en gobernanza es el mas frecuente.
+    """
+    states: dict[str, Any] = dict(runtime().get("allowed_lifecycle_states", {}))
+    states.pop("rationale", None)
+    missing = sorted(
+        name
+        for name in runtime().get("modes", {})
+        if _effective_mode(name).get("allow_broker_orders") and name not in states
+    )
+    assert not missing, (
+        f"Modos que envian ordenes sin declarar estados admitidos: {missing}. "
+        "Un modo con broker y sin restriccion de ciclo de vida admite un candidato."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +515,53 @@ def test_derived_docs_are_in_sync() -> None:
 
 
 @pytest.mark.contract
+def test_derived_docs_are_independent_of_the_clock() -> None:
+    """Ningun generador de artefactos derivados lee el reloj de pared (ADR-0009).
+
+    Es lo que hace verificable a `test_derived_docs_are_in_sync`. Ese test compara
+    byte a byte, asi que cualquier dato tomado del tiempo fisico lo pone en rojo en
+    cada cambio de dia sin que ningun contrato haya cambiado. Ocurrio: el pie del
+    documento llevaba `datetime.now(UTC)`, el criterio bloqueante `docs_regenerated`
+    caducaba cada 24 horas, y la respuesta aprendida fue editar el artefacto a mano
+    -la senal de degradacion que BUILD.md nombra-.
+
+    Se comprueba el AST y no el texto, por el mismo motivo que
+    `test_architecture.py::test_no_wall_clock`: nombrar `datetime.now` en la prosa
+    que EXPLICA la prohibicion no es incumplirla, y una regla que no distingue su
+    enunciado de su violacion acaba desactivada.
+
+    Y se comprueba el GENERADOR, no su salida. La salida contiene fechas
+    legitimas -la columna `Fecha` de la tabla de decisiones sale de
+    `decisions/*.toml`-, que son datos de contrato y por tanto deterministas.
+    Prohibirlas en el artefacto seria confundir "no depende del reloj" con "no
+    contiene fechas", y romperia al primer ADR nuevo.
+    """
+    forbidden = ("datetime.now", "datetime.utcnow", "date.today", "time.time", "time.time_ns")
+    generators = (
+        ROOT / "scripts" / "generate_docs.py",
+        ROOT / "scripts" / "consolidate_architecture.py",
+    )
+
+    offenders: list[str] = []
+    for path in generators:
+        if not path.exists():  # pragma: no cover
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+                continue
+            call = ast.unparse(node.func)
+            if any(call.endswith(needle) for needle in forbidden):
+                offenders.append(f"{path.relative_to(ROOT)}:{node.lineno} llama a {call}()")
+
+    assert not offenders, (
+        "Un generador de artefactos derivados lee el reloj de pared:\n  "
+        + "\n  ".join(offenders)
+        + "\n  ADR-0009: el pie declara generador y version de contrato, nunca la fecha."
+    )
+
+
+@pytest.mark.contract
 def test_constitution_changes_require_a_decision() -> None:
     """Modificar la Constitucion exige un ADR aceptado que lo respalde.
 
@@ -513,6 +581,158 @@ def test_constitution_changes_require_a_decision() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# 7. El fichero de entrega concuerda con los contratos
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def delivery() -> dict[str, Any]:
+    return _load(CONFIGS / "delivery.toml")
+
+
+def _dod_criteria() -> dict[str, dict[str, Any]]:
+    """Nombre -> definicion de cada criterio de la Definition of Done."""
+    return {str(entry["name"]): entry for entry in delivery().get("dod", []) if "name" in entry}
+
+
+@pytest.mark.contract
+def test_delivery_state_matches_capabilities() -> None:
+    """`configs/delivery.toml` habla de capacidades reales y con estados reales.
+
+    La cabecera del fichero prometia esta comprobacion desde el principio y no
+    existia: durante un mes `[state]` declaro `not_started` cinco capacidades
+    que ya tenian motor, y como `platform_report` y `qp doctor` LEEN ese
+    fichero, las dos herramientas de estado del proyecto informaban de un
+    sistema que no existe (ADR-0012).
+
+    Se verifica en los DOS sentidos. Una capacidad de mas es un error visible
+    -alguien busca la funcionalidad y no esta-; una capacidad de menos no
+    aparece en `qp status` y nadie la echa de menos.
+    """
+    declared = set(architecture().get("capabilities", {}))
+    states = delivery().get("state", {})
+    allowed = {"not_started", "in_progress", "ready", "blocked"}
+    criteria = set(_dod_criteria())
+
+    unknown = sorted(set(states) - declared)
+    assert not unknown, (
+        f"Capacidades en delivery.toml que no existen en architecture.toml: {unknown}"
+    )
+
+    absent = sorted(declared - set(states))
+    assert not absent, (
+        f"Capacidades declaradas sin fila en delivery.toml: {absent}. "
+        "Una capacidad sin fila no aparece en `qp status` y nadie la echa de menos."
+    )
+
+    problems: list[str] = []
+    for name, spec in sorted(states.items()):
+        status = str(spec.get("status", ""))
+        if status not in allowed:
+            problems.append(f"{name}: estado {status!r} no admitido. Validos: {sorted(allowed)}")
+        unknown_done = sorted(set(spec.get("done", ())) - criteria)
+        if unknown_done:
+            problems.append(f"{name}: criterios inexistentes en la DoD: {unknown_done}")
+    assert not problems, "Filas incoherentes en delivery.toml:\n  " + "\n  ".join(problems)
+
+
+def _package_has_implementation(name: str) -> bool:
+    """Si el paquete contiene algo mas que docstrings.
+
+    Mismo criterio que usa cualquiera al mirar el arbol: un modulo cuyo cuerpo
+    es solo su docstring esta declarado, no construido.
+    """
+    root = ROOT / str(architecture().get("meta", {}).get("root_package", "app")) / name
+    if not root.is_dir():
+        return False
+    for path in root.rglob("*.py"):
+        if "__pycache__" in path.parts:
+            continue
+        module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        body = module.body[1:] if ast.get_docstring(module) is not None else module.body
+        if body:
+            return True
+    return False
+
+
+@pytest.mark.contract
+def test_capabilities_with_code_are_not_declared_not_started() -> None:
+    """Una capacidad cuyo paquete ya tiene codigo no puede declararse sin empezar.
+
+    Es la comprobacion que faltaba de verdad. Durante un mes `Research`, `Risk`,
+    `Execution`, `Validation` y `Discovery` figuraron como `not_started`
+    mientras sus motores existian, estaban tipados y sumaban unos 400 tests. El
+    fichero no era incoherente consigo mismo -por eso ninguna verificacion
+    interna lo detectaba-: era incoherente con el ARBOL, y nada los cruzaba.
+
+    Se comprueba solo en este sentido, a proposito. Lo contrario -una capacidad
+    `in_progress` sin una linea escrita- es legitimo: una capacidad puede estar
+    en curso porque se esta decidiendo su contrato, y exigir codigo para
+    declararla empezada empujaria a escribir codigo antes que contrato, que es
+    el orden que BUILD.md invierte deliberadamente.
+    """
+    states = delivery().get("state", {})
+    built: dict[str, list[str]] = {}
+    for package, spec in sorted(declared_packages().items()):
+        if _package_has_implementation(package):
+            built.setdefault(str(spec.get("capability", "")), []).append(package)
+
+    problems = [
+        f"{capability}: declarada `not_started` y ya tiene codigo en {sorted(pkgs)}"
+        for capability, pkgs in sorted(built.items())
+        if str(states.get(capability, {}).get("status", "")) == "not_started"
+    ]
+    assert not problems, (
+        "El fichero de entrega contradice al arbol:\n  "
+        + "\n  ".join(problems)
+        + "\n`qp status` y `qp doctor` leen este fichero: mientras mienta, mienten ellos."
+    )
+
+
+@pytest.mark.contract
+def test_delivery_artifacts_exist() -> None:
+    """Los artefactos que una capacidad dice haber producido existen en disco.
+
+    Una fila puede quedarse obsoleta en dos direcciones y esta cubre la segunda:
+    un fichero renombrado o retirado deja la fila apuntando a algo que ya no
+    esta, y el estado sigue pareciendo respaldado por evidencia.
+    """
+    missing: list[str] = []
+    for name, spec in sorted(delivery().get("state", {}).items()):
+        for artifact in spec.get("artifacts", ()):
+            if not (ROOT / str(artifact)).exists():
+                missing.append(f"{name}: {artifact}")
+    assert not missing, "Artefactos declarados que no existen:\n  " + "\n  ".join(missing)
+
+
+@pytest.mark.contract
+def test_delivery_status_follows_from_its_own_criteria() -> None:
+    """El estado declarado se deduce de los criterios cumplidos, no se opina.
+
+    `ready` exige TODOS los criterios `mandatory`: la propia DoD dice que
+    `in_progress` con doce de catorce sigue siendo `in_progress`. Y al reves,
+    una capacidad que ya los cumple todos no puede seguir en `in_progress`, que
+    es el error conservador -el que duro un mes sin que nadie lo notara-.
+    """
+    mandatory = {name for name, spec in _dod_criteria().items() if spec.get("mandatory")}
+    problems: list[str] = []
+
+    for name, spec in sorted(delivery().get("state", {}).items()):
+        status = str(spec.get("status", ""))
+        pending = mandatory - set(spec.get("done", ()))
+        if status == "ready" and pending:
+            problems.append(
+                f"{name}: declarada `ready` con criterios pendientes: {sorted(pending)}"
+            )
+        if status == "in_progress" and not pending:
+            problems.append(
+                f"{name}: cumple todos los criterios y sigue en `in_progress`. "
+                "Promocionala a `ready` o retira el criterio que ya no aplica."
+            )
+    assert not problems, "Estados que no se siguen de sus criterios:\n  " + "\n  ".join(problems)
+
+
 @pytest.mark.contract
 def test_supersession_links_resolve() -> None:
     """`supersedes` y `superseded_by` apuntan a decisiones existentes y coherentes."""
@@ -528,3 +748,84 @@ def test_supersession_links_resolve() -> None:
                 f"{adrs().get(target, {}).get('status')!r}"
             )
     assert not problems, "Enlaces de reemplazo incoherentes:\n  " + "\n  ".join(problems)
+
+
+# ---------------------------------------------------------------------------
+# 8. La politica de demo se aplica tambien en ejecucion (ADR-0017)
+#
+# La suite corre en CI; `Preflight` corre en la maquina del operador, que es
+# donde un contrato editado a mano llega a produccion. Que las dos lo comprueben
+# no es redundancia: es que el fallo pueda detenerse en los dos sitios.
+# ---------------------------------------------------------------------------
+
+
+def _deployment_with_runtime(root: Path, transform: Any) -> Path:
+    """Despliegue minimo con los contratos reales y `runtime.toml` transformado.
+
+    Se copian los contratos REALES en lugar de fabricar unos de juguete: lo que
+    se comprueba es que el preflight detenga una degradacion del contrato
+    vigente, y un contrato inventado para el test no probaria eso.
+    """
+    import shutil
+
+    (root / "configs").mkdir(parents=True)
+    for name in ("architecture.toml", "conventions.toml", "runtime.toml", "plugins.toml"):
+        shutil.copy(ROOT / "configs" / name, root / "configs" / name)
+    shutil.copy(ROOT / "CONSTITUTION.md", root / "CONSTITUTION.md")
+
+    contract = root / "configs" / "runtime.toml"
+    contract.write_text(transform(contract.read_text(encoding="utf-8")), encoding="utf-8")
+    return root
+
+
+@pytest.mark.contract
+def test_preflight_accepts_the_demo_mode_as_declared(tmp_path: Path) -> None:
+    """`demo` pasa el preflight: hereda de `live` y no relaja nada.
+
+    Es la propiedad que hace legitimo el modo, y se comprueba ejecutando el
+    preflight en lugar de razonando sobre la herencia.
+    """
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(tmp_path / "ok", lambda text: text)
+    result = Preflight(deployment, mode="demo").run()
+
+    assert result.ok, [issue.code for issue in result.report]
+    assert "lifecycle_states_restricted" in result.checks_run
+
+
+@pytest.mark.contract
+def test_preflight_refuses_a_broker_mode_that_admits_candidates(tmp_path: Path) -> None:
+    """Anadir `candidate` a los estados de `demo` detiene el arranque.
+
+    Antes de ADR-0017 esta degradacion pasaba el preflight en VERDE: la
+    restriccion de ciclo de vida solo la verificaba la suite. Se descubrio
+    intentando romper la politica, no leyendo el codigo.
+    """
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(
+        tmp_path / "candidato",
+        lambda text: text.replace(
+            'demo = ["promoted", "live"]', 'demo = ["promoted", "live", "candidate"]'
+        ),
+    )
+    result = Preflight(deployment, mode="demo").run()
+
+    assert not result.ok
+    assert "PREFLIGHT_UNPROMOTED_STATE_ALLOWED" in {issue.code for issue in result.report}
+
+
+@pytest.mark.contract
+def test_preflight_refuses_a_broker_mode_without_declared_states(tmp_path: Path) -> None:
+    """Olvidar la fila de estados tampoco pasa: el fallo por omision cuenta."""
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(
+        tmp_path / "omision",
+        lambda text: text.replace('demo = ["promoted", "live"]\n', ""),
+    )
+    result = Preflight(deployment, mode="demo").run()
+
+    assert not result.ok
+    assert "PREFLIGHT_UNRESTRICTED_LIFECYCLE" in {issue.code for issue in result.report}

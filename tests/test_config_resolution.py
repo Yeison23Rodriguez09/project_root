@@ -8,8 +8,11 @@ con hojas- se cubren en microsegundos y sin ficheros temporales.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from app.container.bootstrap import load_configuration
 from app.core.config.provenance import (
     Priority,
     flatten,
@@ -17,6 +20,8 @@ from app.core.config.provenance import (
 )
 from app.core.config.resolver import ConfigLayer, freeze, require, resolve
 from app.core.exceptions import ConfigError, ConfigValidationError
+
+ROOT = Path(__file__).resolve().parent.parent
 
 pytestmark = pytest.mark.unit
 
@@ -178,3 +183,120 @@ def test_resolution_is_deterministic() -> None:
     first, _ = resolve(layers)
     second, _ = resolve(layers)
     assert first.to_dict() == second.to_dict()
+
+
+# ---------------------------------------------------------------------------
+# Contratos de dominio en la cadena de resolucion (ADR-0015)
+#
+# Hasta esta etapa, `configs/risk.toml` y `configs/backtest.toml` no los leia
+# NADIE: sus valores vivian tambien en los defectos de `RiskLimits` y en una
+# constante del comando, y la fuente que mandaba era la que menos se revisa -el
+# codigo- mientras el fichero documentado quedaba de adorno. Es P5 roto.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_the_domain_contracts_reach_the_effective_configuration() -> None:
+    """Riesgo y backtest se resuelven, con su procedencia y bajo su namespace."""
+    config = load_configuration(ROOT, mode="ci")
+
+    assert config.get("risk.sizing.risk_fraction") == 0.01
+    assert config.get("risk.limits.min_stop_cost_multiple") == 3.0
+    assert config.get("backtest.account.initial_equity") == 10_000.0
+    assert "risk.toml" in config.origin_of("risk.sizing.risk_fraction")
+
+
+@pytest.mark.unit
+def test_the_namespaces_keep_three_files_from_colliding() -> None:
+    """Tres contratos declaran `[meta] version` y ninguno pisa al otro.
+
+    Es el motivo del prefijo: `global.toml`, `risk.toml` y `backtest.toml`
+    comparten prioridad, y sin espacio de nombres los tres escribirian la clave
+    `meta.version` con la misma autoridad. La resolucion tendria que elegir entre
+    valores igual de legitimos.
+    """
+    config = load_configuration(ROOT, mode="ci")
+
+    assert config.get("meta.version") == 1
+    assert config.get("risk.meta.version") == 1
+    assert config.get("backtest.meta.version") == 1
+
+    #  marca toda clave declarada en mas de una capa, incluida la
+    # sobrescritura legitima de un perfil sobre el fichero global. Lo que no
+    # puede haber es disputa entre capas de la MISMA prioridad: ahi no hay
+    # criterio para elegir, y es justo lo que el prefijo evita.
+    same_priority = [
+        value.key
+        for value in config.trace.contested()
+        if any(origin.priority == value.origin.priority for _, origin in value.overridden)
+    ]
+    assert not same_priority, f"Contratos que se pisan con igual autoridad: {same_priority}"
+
+
+@pytest.mark.unit
+def test_the_prose_that_explains_a_value_is_not_a_value() -> None:
+    """Las subtablas `rationale` no entran en la configuracion efectiva.
+
+    Si entraran, entrarian tambien en el `ConfigFingerprint`: reescribir un
+    comentario para aclararlo cambiaria la huella y con ella la identidad de toda
+    corrida posterior, de modo que dos experimentos identicos dejarian de
+    parecerlo por una correccion de estilo.
+    """
+    config = load_configuration(ROOT, mode="ci")
+
+    prose = [key for key in config.trace.flat() if "rationale" in key]
+    assert not prose, f"La prosa entro en la configuracion efectiva: {prose}"
+
+
+@pytest.mark.unit
+def test_editing_a_rationale_does_not_change_the_fingerprint(tmp_path: Path) -> None:
+    """El reciproco, comprobado sobre ficheros reales y no por razonamiento."""
+    import shutil
+
+    from app.config.providers.toml import TomlFileProvider
+    from app.core.config.fingerprint import fingerprint
+    from app.core.config.provenance import Priority
+    from app.core.config.resolver import resolve
+
+    def huella(path: Path) -> str:
+        layer = TomlFileProvider(path, Priority.GLOBAL_FILE, prefix="risk").load()
+        assert layer is not None
+        trace, _ = resolve([layer])
+        return str(fingerprint(trace))
+
+    original = tmp_path / "risk.toml"
+    shutil.copy(ROOT / "configs" / "risk.toml", original)
+    edited = tmp_path / "risk_editado.toml"
+    edited.write_text(
+        original.read_text(encoding="utf-8").replace(
+            "Fraccion del capital que se arriesga", "FRACCION del capital que se arriesga"
+        ),
+        encoding="utf-8",
+    )
+
+    assert huella(original) == huella(edited)
+
+
+@pytest.mark.unit
+def test_an_incomplete_risk_policy_is_rejected_instead_of_defaulted(tmp_path: Path) -> None:
+    """Un `risk.toml` sin sus claves NO cae a los defectos del tipo.
+
+    Caer en silencio a un `risk_fraction` por defecto es la forma en que una
+    politica de riesgo deja de aplicarse sin que nadie borre una linea: la
+    plataforma seguiria dimensionando, con numeros que nadie declaro.
+    """
+    import shutil
+
+    from app.container.bootstrap import platform_services
+
+    for name in ("global.toml", "backtest.toml"):
+        shutil.copy(ROOT / "configs" / name, tmp_path / name)
+    (tmp_path / "risk.toml").write_text("[meta]\nversion = 1\n", encoding="utf-8")
+    (tmp_path / "symbols").mkdir()
+    root = tmp_path.parent / "proyecto"
+    root.mkdir(exist_ok=True)
+    shutil.rmtree(root / "configs", ignore_errors=True)
+    shutil.copytree(tmp_path, root / "configs")
+
+    with pytest.raises(ConfigValidationError, match="riesgo"):
+        platform_services(root)

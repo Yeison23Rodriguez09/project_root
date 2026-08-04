@@ -96,8 +96,7 @@ def discover_manifests(root: Path) -> tuple[PluginManifest, ...]:
     distinto en cada ejecucion, y con el la culpa cambiaria de sitio sola.
     """
     filename = str(
-        plugin_contract(root).get("meta", {}).get("manifest_filename")
-        or DEFAULT_MANIFEST_FILENAME
+        plugin_contract(root).get("meta", {}).get("manifest_filename") or DEFAULT_MANIFEST_FILENAME
     )
     found: list[PluginManifest] = []
     for base in external_directories(root):

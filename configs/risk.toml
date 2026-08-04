@@ -1,0 +1,110 @@
+###############################################################################
+# RISK.TOML - Politica de dimensionamiento y limites de exposicion
+#
+# Es el unico fichero donde se decide cuanto se arriesga. Ni la estrategia ni el
+# motor de ejecucion pueden calcular lotes: si pudieran, seria imposible auditar
+# por que se arriesgo lo que se arriesgo.
+#
+# Ninguno de estos numeros participa en la investigacion. Un candidato no se
+# descubre, optimiza ni valida mejor por arriesgar mas: el riesgo se aplica en
+# el momento de operar, sobre una estrategia que ya trae su evidencia hecha.
+###############################################################################
+
+[meta]
+version = 1
+
+###############################################################################
+# PRESUPUESTO POR OPERACION
+###############################################################################
+
+[sizing]
+risk_fraction = 0.01
+
+[sizing.rationale]
+risk_fraction = """
+Fraccion del capital que se arriesga en una operacion, medida hasta el stop.
+Con 1% hacen falta unas setenta perdidas seguidas para reducir la cuenta a la
+mitad, y esa es la propiedad que se busca: sobrevivir a una racha lo bastante
+larga como para que la ventaja estadistica pueda manifestarse.
+
+Es fraccion del capital ACTUAL y no del inicial. La consecuencia es que el
+tamano baja solo tras las perdidas y sube tras las ganancias, sin que nadie
+tenga que intervenir.
+"""
+
+###############################################################################
+# EL LIMITE QUE MAS IMPORTA
+#
+# El tamano sale de dividir el presupuesto entre la distancia al stop. Es una
+# division, asi que cuando el stop tiende a cero el tamano tiende a infinito.
+# Un stop de un punto pediria cien veces mas lotes que uno de cien.
+#
+# El umbral NO se expresa en puntos fijos: cien puntos son un stop holgado en
+# EURUSD y ruido en un indice. Se expresa como multiplo del coste de ida y
+# vuelta -spread mas deslizamiento de entrada y salida-, que es la unica escala
+# que significa lo mismo en todos los instrumentos.
+#
+# Un stop mas estrecho que el coste de operar no es un stop ajustado: es un
+# stop que el ruido barre con certeza, y ademas pide el tamano mas grande de
+# todos justo cuando menos deberia.
+###############################################################################
+
+[limits]
+min_stop_cost_multiple = 3.0
+absolute_min_stop_points = 10.0
+max_lots_per_order = 10.0
+max_lots_per_symbol = 20.0
+max_open_positions = 5
+max_margin_utilization = 0.25
+
+[limits.rationale]
+min_stop_cost_multiple = """
+El stop debe estar al menos a tres veces el coste de ida y vuelta. Por debajo,
+la operacion necesita que el precio recorra mas en costes que en riesgo
+asumido para salir a cero, y el tamano calculado seria el mayor de toda la
+serie precisamente en la operacion peor planteada.
+"""
+absolute_min_stop_points = """
+Suelo en puntos para instrumentos que declaran coste cero. Sin el, un modelo de
+coste sin rellenar anularia el limite anterior en silencio, que es la forma en
+que un limite deja de existir sin que nadie borre una linea.
+"""
+max_lots_per_order = """
+Tope absoluto por orden, independiente del calculo de riesgo. Existe para acotar
+el dano de un error de dato -un stop mal calculado, un instrumento con
+`value_per_point_per_lot` equivocado- que ya haya superado los demas controles.
+Es un cortafuegos, no un parametro de estrategia: no deberia activarse nunca en
+operacion normal, y que se active es una senal que merece revision.
+"""
+max_lots_per_symbol = """
+Suma de lotes abiertos mas los de la orden nueva, por instrumento. Dos
+posiciones de riesgo aceptable en el mismo simbolo no son dos riesgos
+independientes: comparten el mismo movimiento de precio.
+"""
+max_open_positions = """
+Numero de posiciones simultaneas. Limita la exposicion agregada cuando las
+correlaciones entre instrumentos no estan medidas, que es el caso mientras no
+exista un modelo de correlacion. Es deliberadamente conservador por eso.
+"""
+max_margin_utilization = """
+Fraccion del capital comprometida como margen. Con 25% queda margen libre para
+absorber excursiones adversas sin recibir un margin call, que cierra posiciones
+al peor precio posible y en el peor momento.
+"""
+
+###############################################################################
+# QUE REDUCE Y QUE RECHAZA
+#
+# Distincion deliberada:
+#
+#   REDUCEN   los topes (lotes por orden, por simbolo, margen). La operacion
+#             sigue siendo valida, solo mas pequena. Se anota como WARNING.
+#   RECHAZAN  las puertas (stop insuficiente, capital no positivo, limite de
+#             posiciones, presupuesto que no llega al lote minimo). No hay
+#             tamano seguro. Se anota como ERROR.
+#
+# La direccion nunca es ambigua: un tope solo puede hacer la orden mas pequena.
+# Redondear al alza para alcanzar el lote minimo seria arriesgar mas de lo
+# presupuestado, asi que cuando el presupuesto no llega al minimo negociable la
+# respuesta es no operar.
+###############################################################################

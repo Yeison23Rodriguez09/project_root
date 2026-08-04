@@ -626,4 +626,12 @@ allowed_repeats = [
     "command.py", "request.py", "response.py", "runner.py", "service.py",
     "protocols.py", "exceptions.py", "metadata.py", "params.py",
     "decorators.py", "registry.py", "catalog.py", "loader.py",
+    # `engine.py` es el punto de entrada del motor de cada capacidad -discovery,
+    # optimization, walkforward, execution, analytics-. Es un nombre de ROL, de
+    # la misma clase que `service.py` o `runner.py`, y no un concepto duplicado:
+    # `discovery.engine` y `optimization.engine` son motores distintos, no dos
+    # copias del mismo. Sin esta entrada, cada motor tendria que llamarse
+    # `discovery_engine.py` dentro del paquete `discovery`, que repite el
+    # paquete en el fichero sin anadir informacion.
+    "engine.py",
 ]

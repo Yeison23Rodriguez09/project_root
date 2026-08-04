@@ -1,0 +1,243 @@
+id = "ADR-0012"
+title = "La Fase 4 se abre con la 3 en curso, y el fichero de entrega deja de poder mentir"
+status = "accepted"
+date = "2026-08-02"
+owner = "Platform"
+
+affected_packages = [
+    "research", "portfolio", "execution", "analytics",
+    "walkforward", "validation", "optimization", "discovery",
+]
+
+context = """
+Una reconstruccion completa del contexto sobre `b4a75ce` encontro el sistema en
+un estado que ningun fichero del repositorio describia correctamente.
+
+Los hechos, todos verificados por ejecucion:
+
+* `configs/delivery.toml` declara `phase = "3 - Platform Foundation"` y una
+  regla que PROHIBE abrir la Fase 4 hasta que todas las capacidades de
+  plataforma esten `ready`. Ninguna lo esta.
+* Ocho commits -`Optimization`, `R3`, `R4`, `R5`, `A1` a `A4`- construyeron
+  motores de Fase 4: features, signals, strategies, backtest, riesgo,
+  walk-forward, validacion, optimizacion y discovery. Existen, estan tipados y
+  suman unos 400 tests verdes.
+* El mismo fichero declara esos motores `not_started`.
+* `platform_report` -`app/container/bootstrap.py:315`- y `qp doctor`
+  -`app/interfaces/cli/doctor_cmd.py:37`- LEEN ese fichero. La consecuencia es
+  que las dos herramientas de estado del proyecto informan de un sistema que ya
+  no existe: `qp status` lista Research, Risk, Execution y Validation con un
+  guion cuando los cuatro tienen motor.
+
+La cabecera del propio `delivery.toml` afirma que "`tests/test_governance.py`
+comprueba que toda clave de `[state]` corresponda a una capacidad real". Ese
+test NO existe: ningun fichero de `tests/` lee `configs/delivery.toml`. La
+comprobacion que debia mantener honesto al fichero era ella misma una
+declaracion sin verificar, que es exactamente la clase de defecto que P4 existe
+para impedir.
+
+Hay ademas una segunda contradiccion, independiente pero descubierta en la misma
+revision. El paquete `analytics` esta vacio -solo docstring- mientras
+`configs/architecture.toml` se lo declara como dependencia a `walkforward` y a
+`validation`, `SYSTEM_MODEL.md` le asigna "medir, atribuir y reportar" y
+`status_cmd._REQUIRED_FOR_DISCOVERY` lo exige `ready` antes de abrir Discovery.
+En la practica las metricas viven hoy en `domain/value_objects/metrics.py`.
+
+BUILD.md nombra las dos situaciones entre sus senales de degradacion del
+proceso: "dos fases abiertas a la vez" y "un paquete sin fila en la matriz". La
+segunda esta cubierta; la primera no lo estaba.
+"""
+
+decision = """
+A. La Fase 4 queda formalmente ABIERTA, con la Fase 3 en `in_progress`.
+
+   Se registra el hecho consumado en lugar de fingir que no ocurrio. La
+   alternativa -congelar los motores hasta cerrar la 3- se descarta abajo.
+
+   Lo que la Fase 3 tiene pendiente no es codigo: es infraestructura de
+   verificacion. `coverage_met` no se ha medido nunca y `ci_green` solo tiene
+   evidencia hasta `5f53c9c`. Ninguno de los dos huecos es de la clase que la
+   regla de oro protege: esa regla existe porque en el proyecto anterior
+   estrategias, discovery, zoo, MT5, live y arquitectura evolucionaron A LA VEZ
+   y se acoplaron. Aqui la arquitectura lleva congelada desde
+   `architecture-baseline` y ningun motor la ha tocado -la matriz sigue verde
+   bajo 736 comprobaciones AST-. El riesgo concreto que la regla previene no se
+   ha materializado.
+
+   Lo que SI se exige a cambio, y es la contrapartida de abrir: la Fase 4 no se
+   cierra sin `coverage_met` medido y sin `ci_green` sobre su ultimo commit.
+   Abrir una fase no es renunciar a sus criterios; es dejar de mentir sobre
+   cual esta abierta.
+
+B. `configs/delivery.toml` se sincroniza con el codigo, capacidad por capacidad,
+   y con la evidencia de cada criterio -no con la intencion-.
+
+   En particular `ci_green` NO se marca cumplido en ninguna capacidad. La ultima
+   corrida verde es `5f53c9c`; los ocho commits posteriores no se han empujado y
+   por tanto no han pasado por el pipeline. Marcarlo hoy seria repetir el defecto
+   que este ADR corrige, un mes despues.
+
+C. La comprobacion que la cabecera prometia se ESCRIBE.
+
+   `test_delivery_state_matches_capabilities` verifica que toda clave de
+   `[state]` sea una capacidad declarada en `architecture.toml`, que su `status`
+   este entre los cuatro admitidos, que su `phase` exista, que todo criterio de
+   `done` sea un nombre real de la Definition of Done y que una capacidad con
+   TODOS los criterios cumplidos no siga declarandose `in_progress`.
+
+   Esa ultima asercion es la que impide el fallo INVERSO al de hoy: un fichero
+   que se queda corto tambien miente, y nadie lo nota porque el sentido del
+   error es conservador.
+
+   Sin este test, B es una limpieza que volvera a desincronizarse en el
+   siguiente sprint. Con el, el fichero no puede alejarse del contrato sin
+   romper el build.
+
+D. `analytics` se IMPLEMENTA. No se retira de la matriz.
+
+   El contrato prevalece sobre la implementacion (P10): cuando el codigo y
+   `architecture.toml` discrepan, el que esta mal es el codigo. La matriz lleva
+   congelada desde `architecture-baseline` declarando que `walkforward` y
+   `validation` dependen de `analytics`, y las dos ya funcionan sin el porque
+   consumen `PerformanceMetrics` del dominio.
+
+   Que hoy no haga falta no significa que la arista sobre: significa que las
+   metricas de rendimiento estan viviendo en `domain` por ausencia de su sitio.
+   `domain/value_objects/metrics.py` seguira siendo el TIPO -es un objeto de
+   valor y ahi le corresponde estar-; lo que falta es quien lo CALCULA a partir
+   de trades y equity, y ese es el trabajo que `analytics` tiene asignado.
+
+   La decision se registra aqui, y no se difiere, porque afecta al diseno del
+   runner de backtest: sin ella habria que decidir sobre la marcha donde deja
+   sus metricas, y esa es justo la clase de decision que no debe tomarse dentro
+   de un runner.
+"""
+
+consequences = """
+Se gana que `qp status` y `qp doctor` vuelvan a decir la verdad. Es la
+consecuencia que importa: las dos herramientas son la puerta de promocion entre
+fases, y una puerta que informa mal no es una puerta.
+
+Se gana una comprobacion que no existia. A partir de ahora una capacidad que
+avance sin actualizar su fila rompe el build, en lugar de desincronizarse en
+silencio durante un mes.
+
+Se paga con una regla de oro relajada UNA vez y por escrito. Es el coste real y
+se anota sin adornarlo: la proxima vez que alguien quiera abrir una fase sin
+cerrar la anterior, encontrara este precedente. Por eso A fija explicitamente
+que los criterios de la Fase 3 no se condonan, solo se dejan de usar como
+bloqueo de apertura, y por eso la justificacion se apoya en un riesgo concreto
+-el acoplamiento- y no en la conveniencia.
+
+Se asume una deuda con nombre y sin fecha aun: `coverage_met` no se ha medido en
+ninguna capacidad y `ci_green` no tiene evidencia sobre `HEAD`. Quedan escritos
+como pendientes en cada fila en lugar de darse por buenos.
+
+NO se toca `configs/architecture.toml`. La matriz sigue congelada en
+`architecture-baseline` y este ADR no anade, quita ni mueve una sola arista: D
+resuelve la discrepancia rellenando el paquete que la matriz ya declaraba, que
+es la direccion que P10 impone.
+"""
+
+references = [
+    "configs/delivery.toml",
+    "app/container/bootstrap.py",
+    "app/interfaces/cli/doctor_cmd.py",
+    "app/interfaces/cli/status_cmd.py",
+    "BUILD.md",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_governance.py::test_delivery_state_matches_capabilities"
+description = """
+El test recorre `configs/delivery.toml` y lo contrasta contra
+`configs/architecture.toml`, que es la fuente de verdad de que capacidades
+existen. Comprueba cinco cosas:
+
+  * toda clave de `[state]` es una capacidad declarada -lo que la cabecera del
+    fichero prometia desde el principio-;
+  * ninguna capacidad declarada se queda sin fila, que es el fallo silencioso:
+    una capacidad ausente no aparece en `qp status` y nadie la echa de menos;
+  * `status` esta entre `not_started`, `in_progress`, `ready` y `blocked`;
+  * todo nombre de `done` corresponde a un criterio real de la Definition of
+    Done del propio fichero, de modo que un criterio renombrado no deje filas
+    apuntando a algo que ya no se evalua;
+  * una capacidad con todos los criterios `mandatory` cumplidos no puede seguir
+    declarandose `in_progress`, ni una `ready` tener criterios pendientes.
+
+La ultima es la que cubre el error en ambos sentidos. Un fichero de estado
+demasiado optimista se detecta enseguida porque alguien busca la funcionalidad y
+no esta; uno demasiado conservador -el de hoy- puede durar meses.
+
+La parte A de la decision no la verifica un test, y se dice en lugar de
+disimularlo: "que fase esta abierta" es un acuerdo de proceso, no una propiedad
+del codigo. Lo que si queda verificado es su consecuencia observable, que es que
+`meta.phase` y el estado de cada capacidad concuerden con lo construido.
+"""
+
+[rollback]
+description = """
+`git revert` del commit de este ADR. Devuelve `delivery.toml` a su estado previo
+y retira el test.
+
+No hay migracion ni dato que deshacer: los tres artefactos afectados -el ADR, el
+fichero de entrega y el test- son declarativos. `docs/ARCHITECTURE.md` se
+regenera con `python scripts/generate_docs.py`.
+
+Revertir tiene un coste que conviene conocer antes de hacerlo: `qp status` y
+`qp doctor` volverian a informar de un sistema que no existe, que es el defecto
+que este ADR corrige. Si lo que se quiere deshacer es la parte A -la apertura de
+la Fase 4- lo correcto es un ADR que supersede a este, no un revert: B y C son
+correcciones de honestidad y siguen siendo validas con cualquier decision de
+fase.
+"""
+effort = "quince minutos"
+
+[[alternatives]]
+option = "Cerrar la Fase 3 antes de continuar, congelando los motores ya escritos"
+rejected_because = """
+Es la lectura literal de la regla de oro y se considero en serio. Se descarta
+por lo que la regla protege realmente.
+
+Lo que falta para cerrar la Fase 3 es medir cobertura y empujar a CI. Ninguna de
+las dos cosas cambia una linea de los motores ya escritos, de modo que
+congelarlos no reduce ningun riesgo de acoplamiento: solo retrasa. Y el trabajo
+esta hecho -no es una fase que este a punto de empezar-, asi que "cerrar la 3
+primero" no impediria nada que no haya ocurrido ya.
+
+El riesgo que la regla previene -que arquitectura y motores evolucionen a la
+vez- se mide mejor con la matriz que con el calendario, y la matriz sigue
+congelada y verde.
+"""
+
+[[alternatives]]
+option = "Sincronizar `delivery.toml` sin registrar ADR"
+rejected_because = """
+Seria editar la norma para que encaje con el progreso, que es literalmente lo
+que la cabecera del fichero advierte que no debe hacerse y lo que P10 invierte.
+
+El cambio de `phase = "3"` a `phase = "4"` no es una actualizacion de estado: es
+una decision de proceso que contradice una regla escrita. Sin ADR, dentro de un
+ano nadie podria saber si la Fase 4 se abrio deliberadamente o si alguien
+sobrescribio un campo sin leer la regla que tenia encima.
+"""
+
+[[alternatives]]
+option = "Retirar `analytics` de la matriz y dejar las metricas en `domain`"
+rejected_because = """
+Exigiria tocar `configs/architecture.toml`, que esta congelado en
+`architecture-baseline`, para quitar la arista a `walkforward` y `validation` y
+la capacidad entera. Un contrato congelado que se descongela ante la primera
+incomodidad deja de estar congelado.
+
+Ademas el argumento no se sostiene por si solo: `analytics` estaria vacio no
+porque sobre, sino porque su trabajo -calcular metricas a partir de trades y
+equity, atribuir y reportar- no se ha escrito todavia. `PerformanceMetrics` es
+el resultado de ese calculo, no el calculo.
+
+`SYSTEM_MODEL.md` lo declara ademas motor con entrada y salida propias
+-"`Trade[]`, equity -> metricas, informes"- y con una prohibicion propia -"no
+influir en la ejecucion"-. Un concepto con prohibicion propia es una frontera,
+no una carpeta vacia.
+"""
