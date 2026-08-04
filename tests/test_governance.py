@@ -251,10 +251,33 @@ def test_live_only_accepts_promoted_strategies() -> None:
     """
     states: dict[str, Any] = dict(runtime().get("allowed_lifecycle_states", {}))
     states.pop("rationale", None)
-    for mode in ("live", "paper"):
+    for mode in ("live", "paper", "demo"):
         allowed = set(states.get(mode, ()))
+        assert allowed, f"El modo {mode!r} no declara que estados admite"
         forbidden = allowed - {"promoted", "live"}
         assert not forbidden, f"El modo {mode!r} admite estados no promovidos: {sorted(forbidden)}"
+
+
+@pytest.mark.contract
+def test_every_mode_that_reaches_a_broker_declares_its_lifecycle_states() -> None:
+    """Un modo que puede enviar ordenes declara que estados admite.
+
+    Sin esta comprobacion, anadir un modo con broker y olvidar su fila en
+    `allowed_lifecycle_states` lo dejaria sin restriccion de ciclo de vida: el
+    test anterior recorre una lista fija de nombres y no habria notado la
+    ausencia. Es el fallo por omision, que en gobernanza es el mas frecuente.
+    """
+    states: dict[str, Any] = dict(runtime().get("allowed_lifecycle_states", {}))
+    states.pop("rationale", None)
+    missing = sorted(
+        name
+        for name in runtime().get("modes", {})
+        if _effective_mode(name).get("allow_broker_orders") and name not in states
+    )
+    assert not missing, (
+        f"Modos que envian ordenes sin declarar estados admitidos: {missing}. "
+        "Un modo con broker y sin restriccion de ciclo de vida admite un candidato."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -725,3 +748,84 @@ def test_supersession_links_resolve() -> None:
                 f"{adrs().get(target, {}).get('status')!r}"
             )
     assert not problems, "Enlaces de reemplazo incoherentes:\n  " + "\n  ".join(problems)
+
+
+# ---------------------------------------------------------------------------
+# 8. La politica de demo se aplica tambien en ejecucion (ADR-0017)
+#
+# La suite corre en CI; `Preflight` corre en la maquina del operador, que es
+# donde un contrato editado a mano llega a produccion. Que las dos lo comprueben
+# no es redundancia: es que el fallo pueda detenerse en los dos sitios.
+# ---------------------------------------------------------------------------
+
+
+def _deployment_with_runtime(root: Path, transform: Any) -> Path:
+    """Despliegue minimo con los contratos reales y `runtime.toml` transformado.
+
+    Se copian los contratos REALES en lugar de fabricar unos de juguete: lo que
+    se comprueba es que el preflight detenga una degradacion del contrato
+    vigente, y un contrato inventado para el test no probaria eso.
+    """
+    import shutil
+
+    (root / "configs").mkdir(parents=True)
+    for name in ("architecture.toml", "conventions.toml", "runtime.toml", "plugins.toml"):
+        shutil.copy(ROOT / "configs" / name, root / "configs" / name)
+    shutil.copy(ROOT / "CONSTITUTION.md", root / "CONSTITUTION.md")
+
+    contract = root / "configs" / "runtime.toml"
+    contract.write_text(transform(contract.read_text(encoding="utf-8")), encoding="utf-8")
+    return root
+
+
+@pytest.mark.contract
+def test_preflight_accepts_the_demo_mode_as_declared(tmp_path: Path) -> None:
+    """`demo` pasa el preflight: hereda de `live` y no relaja nada.
+
+    Es la propiedad que hace legitimo el modo, y se comprueba ejecutando el
+    preflight en lugar de razonando sobre la herencia.
+    """
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(tmp_path / "ok", lambda text: text)
+    result = Preflight(deployment, mode="demo").run()
+
+    assert result.ok, [issue.code for issue in result.report]
+    assert "lifecycle_states_restricted" in result.checks_run
+
+
+@pytest.mark.contract
+def test_preflight_refuses_a_broker_mode_that_admits_candidates(tmp_path: Path) -> None:
+    """Anadir `candidate` a los estados de `demo` detiene el arranque.
+
+    Antes de ADR-0017 esta degradacion pasaba el preflight en VERDE: la
+    restriccion de ciclo de vida solo la verificaba la suite. Se descubrio
+    intentando romper la politica, no leyendo el codigo.
+    """
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(
+        tmp_path / "candidato",
+        lambda text: text.replace(
+            'demo = ["promoted", "live"]', 'demo = ["promoted", "live", "candidate"]'
+        ),
+    )
+    result = Preflight(deployment, mode="demo").run()
+
+    assert not result.ok
+    assert "PREFLIGHT_UNPROMOTED_STATE_ALLOWED" in {issue.code for issue in result.report}
+
+
+@pytest.mark.contract
+def test_preflight_refuses_a_broker_mode_without_declared_states(tmp_path: Path) -> None:
+    """Olvidar la fila de estados tampoco pasa: el fallo por omision cuenta."""
+    from app.container.preflight import Preflight
+
+    deployment = _deployment_with_runtime(
+        tmp_path / "omision",
+        lambda text: text.replace('demo = ["promoted", "live"]\n', ""),
+    )
+    result = Preflight(deployment, mode="demo").run()
+
+    assert not result.ok
+    assert "PREFLIGHT_UNRESTRICTED_LIFECYCLE" in {issue.code for issue in result.report}

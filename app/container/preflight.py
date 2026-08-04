@@ -31,6 +31,14 @@ from app.core.exceptions import NotValidated
 from app.core.types import Severity
 from app.core.validation import ValidationReport
 
+#: Estados de ciclo de vida que puede admitir un modo capaz de enviar ordenes.
+#:
+#: `promoted` es la estrategia que supero la validacion y espera aprobacion;
+#: `live` la que ya opera. Cualquier otro -`candidate`, `validated`, `rejected`,
+#: `retired`- significa que algo sin certificar podria llegar al broker, que es
+#: la definicion del fallo que este proyecto existe para evitar.
+PROMOTED_STATES: frozenset[str] = frozenset({"promoted", "live"})
+
 #: Ficheros de gobernanza que deben existir para que el sistema pueda arrancar.
 #: Su ausencia no es un aviso: sin ellos no hay nada que gobierne el arranque.
 REQUIRED_CONTRACTS: tuple[str, ...] = (
@@ -125,6 +133,7 @@ class Preflight:
             self._check_capabilities_are_owned()
             self._check_plugin_compatibility(installed_plugins)
             self._check_determinism_requirements()
+            self._check_lifecycle_states_are_restricted()
             if effective_config is not None:
                 self._check_config_is_frozen(effective_config)
         return PreflightResult(report=self._report, mode=self._mode, checks_run=tuple(self._checks))
@@ -310,6 +319,45 @@ class Preflight:
                         mode=self._mode,
                         requirement=requirement,
                     )
+        self._check_seed_implies_clock(effective)
+
+    def _check_lifecycle_states_are_restricted(self) -> None:
+        """Un modo que envia ordenes no admite estados sin promover.
+
+        La invariante `live_accepts_only_promoted_states` de `runtime.toml` la
+        verificaba solo la suite. La diferencia importa: la suite corre en CI y
+        esto corre en la maquina del operador, que es donde un contrato editado
+        a mano llega a produccion. Se descubrio al intentar degradar la politica
+        de ADR-0017 -anadir `candidate` a los estados de `demo` pasaba el
+        preflight en verde-.
+        """
+        self._checks.append("lifecycle_states_restricted")
+        effective = self._effective_mode(self._mode)
+        if not effective.get("allow_broker_orders"):
+            return
+
+        states: dict[str, Any] = dict(self._runtime.get("allowed_lifecycle_states", {}))
+        states.pop("rationale", None)
+        if self._mode not in states:
+            self._report.add(
+                "PREFLIGHT_UNRESTRICTED_LIFECYCLE",
+                f"El modo {self._mode!r} envia ordenes y no declara que estados admite",
+                Severity.FATAL,
+                mode=self._mode,
+            )
+            return
+
+        forbidden = sorted(set(states[self._mode]) - PROMOTED_STATES)
+        if forbidden:
+            self._report.add(
+                "PREFLIGHT_UNPROMOTED_STATE_ALLOWED",
+                f"El modo {self._mode!r} envia ordenes y admite estados sin promover: {forbidden}",
+                Severity.FATAL,
+                mode=self._mode,
+                forbidden=forbidden,
+            )
+
+    def _check_seed_implies_clock(self, effective: Mapping[str, Any]) -> None:
         if effective.get("requires_seed") and not effective.get("requires_clock_injection"):
             self._report.add(
                 "PREFLIGHT_INCONSISTENT_DETERMINISM",

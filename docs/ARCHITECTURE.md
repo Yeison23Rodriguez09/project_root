@@ -264,6 +264,7 @@ historia, una estrategia en produccion es un numero sin procedencia.
 | `ci` | `deterministic` | Verificacion automatica. Sin red, sin datos externos, sin broker. |
 | `paper` | `research` | Feed en tiempo real, sin ejecucion real. |
 | `live` | `paper` | Ejecucion real. El unico modo que puede mover dinero. |
+| `demo` | `live` | Integracion tecnica contra un terminal real, sobre cuenta de demostracion. |
 
 ### Invariantes que ningun modo puede romper
 - `broker_orders_require_promotion_and_approval` (P8)
@@ -293,6 +294,7 @@ Un plugin solo ve: `app.core`, `app.domain`, `app.shared`. Nada mas.
 | [`ADR-0014`](../decisions/ADR-0014.toml) | accepted | 2026-08-03 | Trading | El riesgo dimensiona sobre capital y stop, y separa lo que recorta de lo que rechaza |
 | [`ADR-0015`](../decisions/ADR-0015.toml) | accepted | 2026-08-03 | Platform | Los contratos de dominio entran en la configuracion resuelta, y la prosa se queda fuera |
 | [`ADR-0016`](../decisions/ADR-0016.toml) | accepted | 2026-08-03 | Research | La semilla de cada fold se deriva, no se suma |
+| [`ADR-0017`](../decisions/ADR-0017.toml) | accepted | 2026-08-04 | Trading | Demo es live con una salvaguarda mas, no con una menos |
 
 ---
 

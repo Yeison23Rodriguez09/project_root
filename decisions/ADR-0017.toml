@@ -1,0 +1,227 @@
+id = "ADR-0017"
+title = "Demo es live con una salvaguarda mas, no con una menos"
+status = "accepted"
+date = "2026-08-04"
+owner = "Trading"
+
+affected_packages = ["broker", "execution", "promotion", "application", "interfaces", "container"]
+
+context = """
+Antes de escribir el adaptador de broker habia que resolver una pregunta de
+POLITICA, no de implementacion: `qp trade --mode demo` choca contra
+`require_promoted_state` y `require_approval_record`.
+
+Se consideraron dos flujos:
+
+    A. Discovery -> Validation -> Promotion -> Demo -> Live
+    B. Discovery -> Backtest -> Demo -> Promotion -> Live
+
+B era la preferencia inicial y su argumento es bueno: permite validar conexion,
+envio de ordenes, sincronizacion de posiciones, gestion de errores y latencia
+sin esperar a que exista la promocion, que es un subsistema entero todavia
+vacio.
+
+Tres hechos, todos verificados sobre el repositorio, cambiaron la decision.
+
+1. La salvaguarda NO es solo un test de gobernanza.
+   `Preflight._check_determinism_requirements` la aplica con severidad FATAL:
+   un modo con `allow_broker_orders` sin las dos exigencias hace que
+   `qp preflight` rechace el despliegue. Hay dos puntos de aplicacion, y el
+   segundo corre en la maquina del operador.
+
+2. El modo `paper` YA existe y su justificacion escrita rechaza exactamente la
+   opcion B: "Si paper aceptara candidatos sin validar, seria un atajo para
+   llegar a produccion 'solo para probar', y ese atajo se usa siempre".
+   Introducir `demo` con esa misma relajacion habria contradicho una decision
+   razonada sin argumentos nuevos, solo con prisa.
+
+3. El contrato confunde dos cosas bajo una bandera. `allow_broker_orders`
+   significa a la vez "habla con un broker" y "mueve dinero", y una cuenta de
+   demostracion hace lo primero sin lo segundo. Separarlas -una bandera
+   `allow_real_money` nueva- habria hecho la opcion B expresable sin debilitar
+   la proteccion de `live`.
+
+Se opto por A. La separacion de banderas era tecnicamente correcta y se
+descarta por lo que ABRE, no por lo que rompe: en cuanto existe un modo que
+envia ordenes sin exigir promocion, la pregunta deja de ser "esta validado" y
+pasa a ser "esta en demo", que es una pregunta mucho mas facil de responder que
+si a las once de la noche.
+"""
+
+decision = """
+A. `demo` requiere promocion y aprobacion, igual que `live`. El flujo es
+
+       Discovery -> Validation -> Promotion -> Demo -> Live
+
+   La comodidad de validar antes el adaptador no compensa abrir la unica puerta
+   que el proceso cientifico protege.
+
+B. `demo` se declara como modo que HEREDA de `live` y anade
+   `require_demo_account = true`.
+
+   La propiedad que lo hace legitimo: no relaja ni una sola restriccion. Hereda
+   `allow_broker_orders`, `require_promoted_state`, `require_approval_record`,
+   `require_risk_limits`, `require_audit_trail`, `require_kill_switch` y
+   `forbid_config_hot_reload`. `demo` NO es `live` con menos controles; es
+   `live` con uno mas.
+
+   La consecuencia practica es que este ADR no modifica ninguna invariante de
+   gobierno. `test_broker_orders_require_promotion_and_approval` y
+   `test_modes_never_discount_safeguards` pasan sin tocarlos, y
+   `qp preflight --mode demo` da verde con las mismas ocho comprobaciones que
+   cualquier otro modo. Anadir una salvaguarda siempre esta permitido; era
+   descontarla lo que estaba prohibido.
+
+C. `require_demo_account` NO se satisface leyendo un fichero.
+
+   Es la parte que de verdad protege. Se verifica contra el TERMINAL:
+   `account_info().trade_mode` distingue cuenta de demostracion, de concurso y
+   real, y el adaptador rechaza conectar si no es de demostracion. Una bandera
+   en un TOML es una promesa que se cumple sola mientras nadie cambie el
+   terminal; la comprobacion contra la cuenta es lo unico que detiene a quien
+   apunte el terminal a una cuenta real por descuido.
+
+   El adaptador actual -`MT5MarketDataAdapter`- lee hoy solo `login` y `server`
+   de `account_info()`. `trade_mode` se incorpora al leer el estado del
+   terminal, y el doble de `tests/fakes/mt5.py` gana el campo para poder probar
+   los tres casos sin terminal.
+
+D. Se reconcilia la cabecera de `configs/runtime.toml`, que afirmaba que los
+   modos son ortogonales al entorno del broker y que "`live` con broker demo
+   sigue siendo modo `live`".
+
+   Sigue siendo cierto en lo que importa -la diferencia entre demo y real no
+   cambia el COMPORTAMIENTO del sistema, y `demo` no cambia ninguno-, pero
+   habria quedado contradictorio sin explicar por que existe entonces un modo
+   aparte. Existe porque sin el, operar contra una demo obligaria a arrancar en
+   `live` y confiar en que el terminal apunte donde toca.
+
+E. `demo` declara sus estados de ciclo de vida admitidos -`promoted` y `live`,
+   los mismos que `live`- y su matriz de paquetes, que es la de `live` sin el
+   paquete `live`: `demo` no arranca el motor de ejecucion continua, solo
+   ejercita la cadena hasta el broker.
+"""
+
+consequences = """
+Se gana que el flujo de demo sea el flujo de produccion, sin una sola bifurcacion
+que mantener. Todo lo que se verifique en demo -conexion, envio, sincronizacion
+de posiciones, traduccion de errores, latencia- se verifica sobre exactamente el
+mismo camino que usara `live`, porque las restricciones son las mismas.
+
+Se gana ademas que ninguna invariante se toque. Este ADR se implementa anadiendo
+un modo y un cerrojo; no retira ni relaja nada, y por tanto no necesita que
+ninguna comprobacion existente cambie de criterio.
+
+Se paga con una SECUENCIA mas larga, y es un coste real que conviene enunciar
+sin adornos: `qp trade --mode demo` no podra ejecutarse contra un terminal hasta
+que exista una estrategia promovida, y eso exige `promotion` y el zoo, que hoy
+son paquetes vacios. El adaptador se construye y se verifica antes -con su
+doble, que es lo que la suite exige de todas formas- pero su prueba contra el
+terminal real queda detras de esa puerta.
+
+La consecuencia se convierte en propiedad verificable en lugar de en espera: que
+`qp trade --mode demo` RECHACE ejecutar una estrategia no promovida es en si
+mismo el comportamiento que este ADR decide, y se prueba como tal. Es la
+diferencia entre "todavia no funciona" y "funciona negandose".
+
+Riesgo asumido y NO resuelto: `trade_mode` es un dato que declara el terminal, y
+un terminal comprometido o una version futura de la API podrian declararlo mal.
+No hay defensa razonable contra eso desde el lado del cliente, y la alternativa
+-no comprobarlo- es estrictamente peor. Queda escrito para que la garantia se
+entienda como "el terminal afirma que la cuenta es demo" y no como "es
+imposible operar en real".
+"""
+
+references = [
+    "configs/runtime.toml",
+    "app/container/preflight.py",
+    "app/broker/mt5_source.py",
+    "tests/fakes/mt5.py",
+]
+
+[validation]
+kind = "test"
+reference = "tests/test_governance.py::test_every_mode_that_reaches_a_broker_declares_its_lifecycle_states"
+description = """
+La decision se sostiene sobre comprobaciones que ya existian y sobre una nueva.
+
+Las que ya existian y ahora cubren `demo` sin cambiar de criterio:
+
+  * `test_broker_orders_require_promotion_and_approval` recorre TODOS los modos,
+    de modo que `demo` queda sujeto a la misma exigencia que `live` por el mero
+    hecho de declararse;
+  * `test_modes_never_discount_safeguards` verifica que `demo` no ponga en
+    `false` nada que herede en `true`, que es la propiedad central de B;
+  * `Preflight` lo comprueba ademas en ejecucion: `qp preflight --mode demo`
+    pasa las ocho comprobaciones.
+
+La nueva, `test_every_mode_that_reaches_a_broker_declares_its_lifecycle_states`,
+cubre el fallo por OMISION, que en gobernanza es el mas frecuente: el test de
+estados de ciclo de vida recorria una lista fija de nombres -`live`, `paper`- y
+un modo nuevo con broker que olvidara su fila habria quedado sin restriccion sin
+que nada lo detectara. Ahora la lista se deriva de los modos que declaran
+`allow_broker_orders`.
+
+Lo que este ADR NO puede validar todavia, y se dice: que el adaptador rechace
+una cuenta real. Esa comprobacion nace con el adaptador, en la etapa siguiente,
+y su forma esta fijada aqui -`account_info().trade_mode`, con el doble
+cubriendo demo, concurso y real-.
+"""
+
+[rollback]
+description = """
+`git revert` del commit. Se retiran el modo `demo`, sus dos filas -paquetes y
+estados- y la comprobacion nueva de gobernanza.
+
+No hay migracion ni dato que deshacer: los tres cambios son declarativos y
+ningun codigo los consume todavia.
+
+Revertir para adoptar la opcion B exigiria un ADR que supersede a este, no un
+revert: la separacion de `allow_broker_orders` y `allow_real_money` es un cambio
+de invariante de gobierno y debe registrarse como tal, con su propio analisis de
+que protege cada bandera.
+"""
+effort = "diez minutos"
+
+[[alternatives]]
+option = "Demo como modo de integracion, sin exigir promocion (opcion B)"
+rejected_because = """
+Era la preferencia inicial y su argumento tecnico es solido: permite validar el
+adaptador meses antes de que exista la promocion.
+
+Se descarta por lo que abre. Un modo que envia ordenes sin exigir estado
+promovido convierte la pregunta operativa de "esta validado?" en "esta en
+demo?", y la segunda es mucho mas facil de responder que si bajo presion. El
+propio `paper` ya lo tiene escrito desde la Fase 3: el atajo "solo para probar"
+se usa siempre.
+
+Ademas era expresable sin romper nada -separando `allow_broker_orders` de una
+bandera `allow_real_money` nueva-, de modo que la eleccion no fue entre "seguro"
+e "inseguro" sino entre dos disenos coherentes. Se prefirio el que no crea una
+via alternativa hacia el broker.
+"""
+
+[[alternatives]]
+option = "No declarar un modo `demo`: usar `live` contra una cuenta de demostracion"
+rejected_because = """
+Es lo que la cabecera de `runtime.toml` sugeria -"los modos son ortogonales al
+entorno del broker"- y tiene la ventaja de no anadir nada.
+
+El problema es que deja `require_demo_account` sin sitio donde declararse, y con
+ello la unica garantia de que no se opere en real pasa a ser que el operador
+haya apuntado el terminal a la cuenta correcta. Es precisamente la clase de
+salvaguarda que este proyecto convierte en dato ejecutable en lugar de dejarla
+en la cabeza de alguien.
+"""
+
+[[alternatives]]
+option = "Promover una estrategia trivial solo para desbloquear la validacion del adaptador"
+rejected_because = """
+Cumple la letra de la opcion A y viola su proposito. Una estrategia promovida
+sin evidencia real es un `candidate` con otra etiqueta, y el registro de
+aprobacion que la acompanara seria una firma sobre nada.
+
+Peor aun: dejaria en el zoo una entrada cuya procedencia contradice todo lo que
+el zoo existe para garantizar, y esa entrada sobreviviria mucho despues de que
+el motivo -tener prisa por probar MT5- se hubiera olvidado.
+"""
