@@ -34,22 +34,28 @@ arquitectura lleva congelada desde `architecture-baseline` y ningun motor la ha
 tocado: la matriz sigue verde bajo las comprobaciones AST de
 `tests/test_architecture.py`.
 
-Lo unico que la Fase 3 tiene pendiente es infraestructura de VERIFICACION
--cobertura sin medir, CI sin evidencia sobre el ultimo commit-, no codigo. Esos
-criterios no se condonan: la Fase 4 no cierra sin ellos. Se dejan de usar como
-bloqueo de apertura, que es distinto.
+Lo unico que la Fase 3 tenia pendiente era infraestructura de VERIFICACION, no
+codigo. La mitad ya esta: `ci_green` se cumple desde el 2026-08-03 sobre
+`0e1bf1c`. Queda `coverage_met` -79% frente al umbral de 90%-, que NO bloquea
+por decision propia de la DoD. Ver `meta.evidence`.
+
+Esos criterios no se condonan: la Fase 4 no cierra sin ellos. Se dejaron de usar
+como bloqueo de APERTURA, que es distinto.
 """
 evidence = """
-Estado de los dos criterios que hoy no cumple NINGUNA capacidad, para no
-repetirlos en cada fila:
+Estado de los dos criterios que dependen de la infraestructura de verificacion
+y no del codigo de cada capacidad, para no repetirlos en cada fila:
 
-`ci_green` - BLOQUEANTE, sin cumplir en ninguna. El pipeline existe desde
-`.github/workflows/ci.yml` -lint, tipos, suite sobre Windows y Linux en 3.11,
-3.12 y 3.13, build, instalacion del wheel y smoke-. Su ultima corrida verde es
-el commit `5f53c9c`. Los ocho commits posteriores -Optimization, R3, R4, R5 y
-A1 a A4- no se han empujado y por tanto NO han pasado por el pipeline. Marcarlo
-cumplido hoy seria afirmar sobre la maquina de quien lo ejecuto, que es
-exactamente lo que este criterio existe para impedir.
+`ci_green` - CUMPLIDO desde el 2026-08-03 sobre el commit `0e1bf1c`. Catorce
+jobs en verde: lint, tipos, la suite completa en Windows y Linux sobre 3.11,
+3.12 y 3.13, cobertura, build, instalacion del wheel y smoke.
+
+Antes de esa corrida la evidencia se detenia en `5f53c9c`, ocho commits por
+detras, y toda afirmacion de "esta verde" era sobre la maquina de quien la
+hacia. Queda una recursion inevitable y se dice en lugar de disimularla: el
+commit que ESCRIBE esta linea no puede haber pasado por el pipeline cuando se
+escribe. Lo verifica la corrida siguiente, y si fallara, esta afirmacion seria
+lo primero que habria que corregir.
 
 `coverage_met` - no bloqueante, MEDIDO por primera vez el 2026-08-03: **79%** de
 lineas con ramas activadas, frente al umbral de 90% de `[dod_thresholds]`. No se
@@ -264,6 +270,7 @@ done = [
     "no_warnings",
     "deterministic",
     "fingerprint_stable",
+    "ci_green",
 ]
 missing = """
 Desbloqueada: la consolidacion 2.5 se ejecuto y el tag `architecture-baseline`
@@ -307,6 +314,7 @@ done = [
     "no_warnings",
     "deterministic",
     "fingerprint_stable",
+    "ci_green",
 ]
 missing = """
 El contenedor resuelve puertos, valida el DAG al sellar y ejecuta el ciclo de
@@ -354,6 +362,7 @@ done = [
     "docs_regenerated",
     "no_suppressions",
     "no_warnings",
+    "ci_green",
 ]
 missing = """
 La suite se ejecuta y `docs/ARCHITECTURE.md` esta en sincronia con los
@@ -390,6 +399,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 La cadena esta completa de dato a resultado: `data` lee y escribe Parquet con
@@ -437,6 +447,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 `DiscoveryEngine` produce candidatos desde el catalogo de datasets sin conocer
@@ -479,6 +490,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 `WalkForwardEngine` ajusta dentro de muestra y mide fuera sin elegir nunca con
@@ -525,6 +537,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 `FixedFractionalRiskPolicy` dimensiona sobre el capital actual y la distancia al
@@ -567,6 +580,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 Lo construido es la mitad de simulacion: los dos modelos de llenado -optimista y
@@ -607,6 +621,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 `performance_metrics` calcula las dieciocho metricas de `PerformanceMetrics` a
@@ -651,6 +666,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 Existe el adaptador de `EventSinkPort` sobre structlog y orjson, el contexto de
@@ -691,6 +707,7 @@ done = [
     "no_suppressions",
     "no_warnings",
     "deterministic",
+    "ci_green",
 ]
 missing = """
 El grupo de plataforma esta completo: doctor, preflight, status, config show /
